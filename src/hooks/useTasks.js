@@ -50,22 +50,28 @@ export function useTasks(userId) {
     setTasks(prev => prev.filter(t => t.id !== id))
   }
 
+  // moveTask: reorder within same column, no log needed
   const moveTask = async (id, newStatus, newPosition) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus, position: newPosition } : t))
+    await supabase.from('tasks').update({ status: newStatus, position: newPosition }).eq('id', id)
+  }
+
+  // moveTaskWithReason: cross-column move after user confirms reason
+  const moveTaskWithReason = async (id, newStatus, newPosition, reason) => {
     const task = tasks.find(t => t.id === id)
     if (!task) return
     const oldStatus = task.status
-
     setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus, position: newPosition } : t))
-
     await supabase.from('tasks').update({ status: newStatus, position: newPosition }).eq('id', id)
-
-    if (oldStatus !== newStatus) {
-      const labels = { todo: 'To Do', inprogress: 'In Progress', done: 'Done' }
-      await logActivity(id, userId, 'moved', { from: labels[oldStatus], to: labels[newStatus] })
-    }
+    const labels = { todo: 'To Do', inprogress: 'In Progress', done: 'Done' }
+    await logActivity(id, userId, 'moved', { from: labels[oldStatus], to: labels[newStatus], reason })
   }
 
-  return { tasks, loading, addTask, updateTask, deleteTask, moveTask, refetch: fetchTasks }
+  const addNote = async (taskId, note) => {
+    await logActivity(taskId, userId, 'note', { text: note })
+  }
+
+  return { tasks, loading, addTask, updateTask, deleteTask, moveTask, moveTaskWithReason, addNote, refetch: fetchTasks }
 }
 
 export async function logActivity(taskId, userId, action, meta = {}) {

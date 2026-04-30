@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Calendar, User, Flag, ChevronDown, Edit3, GripVertical } from 'lucide-react'
+import { Calendar, User, ChevronDown, Edit3, GripVertical, MessageSquarePlus, Send, X } from 'lucide-react'
 import { format, isPast, isToday } from 'date-fns'
 import ActivityLog from './ActivityLog'
 
@@ -17,8 +17,12 @@ const PRIORITY_DOT = {
   high:   'bg-red-500',
 }
 
-export default function TaskCard({ task, onEdit }) {
-  const [activityOpen, setActivityOpen] = useState(false)
+export default function TaskCard({ task, onEdit, onAddNote }) {
+  const [activityOpen, setActivityOpen]     = useState(false)
+  const [quickNoteOpen, setQuickNoteOpen]   = useState(false)
+  const [quickNote, setQuickNote]           = useState('')
+  const [noteSaving, setNoteSaving]         = useState(false)
+  const [activityKey, setActivityKey]       = useState(0) // force re-fetch after new note
 
   const {
     attributes, listeners, setNodeRef,
@@ -36,11 +40,23 @@ export default function TaskCard({ task, onEdit }) {
   const overdue  = dueDate && isPast(dueDate) && !isToday(dueDate) && task.status !== 'done'
   const dueToday = dueDate && isToday(dueDate)
 
+  const submitQuickNote = async () => {
+    if (!quickNote.trim()) return
+    setNoteSaving(true)
+    await onAddNote(task.id, quickNote.trim())
+    setQuickNote('')
+    setNoteSaving(false)
+    setQuickNoteOpen(false)
+    // Re-open activity to show new note
+    setActivityKey(k => k + 1)
+    setActivityOpen(true)
+  }
+
   return (
     <div ref={setNodeRef} style={style}
       className={`group bg-white rounded-xl border border-slate-200 shadow-card hover:shadow-card-hover transition-all duration-200 ${isDragging ? 'dragging-card' : ''}`}>
       <div className="p-3.5">
-        {/* Drag handle + edit */}
+        {/* Drag handle + title row */}
         <div className="flex items-start gap-2">
           <button {...attributes} {...listeners}
             className="mt-0.5 p-0.5 rounded text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition flex-shrink-0">
@@ -67,7 +83,7 @@ export default function TaskCard({ task, onEdit }) {
               {task.title}
             </p>
 
-            {/* Description preview */}
+            {/* Description */}
             {task.description && (
               <p className="text-xs text-slate-500 mt-0.5 line-clamp-2 leading-relaxed">{task.description}</p>
             )}
@@ -90,11 +106,7 @@ export default function TaskCard({ task, onEdit }) {
 
           {/* Due date */}
           {dueDate && (
-            <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${
-              overdue  ? 'text-red-600' :
-              dueToday ? 'text-amber-600' :
-              'text-slate-400'
-            }`}>
+            <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${overdue ? 'text-red-600' : dueToday ? 'text-amber-600' : 'text-slate-400'}`}>
               <Calendar className="w-3 h-3" />
               {format(dueDate, 'MMM d')}
               {overdue  && ' · overdue'}
@@ -113,17 +125,53 @@ export default function TaskCard({ task, onEdit }) {
           )}
         </div>
 
-        {/* Activity toggle */}
-        <button
-          onClick={() => setActivityOpen(o => !o)}
-          className="mt-2.5 w-full flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-brand-600 transition group/act"
-        >
-          <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${activityOpen ? 'rotate-180' : ''}`} />
-          {activityOpen ? 'Hide' : 'Show'} activity
-        </button>
+        {/* Quick note input */}
+        {quickNoteOpen && (
+          <div className="mt-2.5 animate-slide-down">
+            <div className="flex gap-1.5 items-end">
+              <textarea
+                autoFocus
+                rows={2}
+                placeholder="Tulis update singkat…"
+                value={quickNote}
+                onChange={e => setQuickNote(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submitQuickNote() }}
+                className="input-base resize-none text-xs flex-1 py-1.5"
+              />
+              <div className="flex flex-col gap-1">
+                <button onClick={submitQuickNote} disabled={noteSaving || !quickNote.trim()}
+                  className="p-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40 transition">
+                  <Send className="w-3 h-3" />
+                </button>
+                <button onClick={() => { setQuickNoteOpen(false); setQuickNote('') }}
+                  className="p-1.5 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 transition">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1">⌘Enter untuk kirim</p>
+          </div>
+        )}
+
+        {/* Bottom actions: quick note toggle + activity toggle */}
+        <div className="mt-2.5 flex items-center justify-between">
+          <button
+            onClick={() => setQuickNoteOpen(o => !o)}
+            className={`flex items-center gap-1 text-[10px] font-medium transition ${quickNoteOpen ? 'text-brand-600' : 'text-slate-400 hover:text-brand-500'}`}>
+            <MessageSquarePlus className="w-3 h-3" />
+            Quick note
+          </button>
+
+          <button
+            onClick={() => setActivityOpen(o => !o)}
+            className="flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-brand-600 transition">
+            <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${activityOpen ? 'rotate-180' : ''}`} />
+            {activityOpen ? 'Hide' : 'Activity'}
+          </button>
+        </div>
       </div>
 
-      <ActivityLog taskId={task.id} isOpen={activityOpen} />
+      <ActivityLog key={activityKey} taskId={task.id} isOpen={activityOpen} />
     </div>
   )
 }
