@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html {
+    font-family: 'DM Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-800;
+    min-height: 100dvh;
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-slate-300 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-slate-400; }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 text-white font-medium text-sm
+    hover:bg-brand-700 active:scale-[.98] transition-all duration-150 shadow-sm;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-3 py-2 rounded-lg text-slate-500 font-medium text-sm
+    hover:bg-slate-100 hover:text-slate-700 active:scale-[.98] transition-all duration-150;
+  }
+
+  .input-base {
+    @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800
+    placeholder-slate-400 outline-none transition
+    focus:border-brand-400 focus:ring-2 focus:ring-brand-100;
+  }
+
+  .badge-priority-low    { @apply bg-emerald-50 text-emerald-700 border border-emerald-200; }
+  .badge-priority-medium { @apply bg-amber-50 text-amber-700 border border-amber-200; }
+  .badge-priority-high   { @apply bg-red-50 text-red-700 border border-red-200; }
+}
+
+/* Drag overlay */
+.dragging-card { @apply rotate-2 scale-105 opacity-90 shadow-xl; }
