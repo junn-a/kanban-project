@@ -46,3 +46,8 @@
 
 /* Drag overlay */
 .dragging-card { @apply rotate-2 scale-105 opacity-90 shadow-xl; }
+
+/* Column card area scrollbar - subtle on mobile */
+@media (max-width: 639px) {
+  .column-scroll { overflow-y: visible !important; max-height: none !important; }
+}
