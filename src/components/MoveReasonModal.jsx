@@ -1,13 +1,17 @@
 import { useState, useRef, useEffect } from 'react'
 import { X, MoveRight, Loader2 } from 'lucide-react'
 
-const COLUMN_LABEL = { todo: 'To Do', inprogress: 'In Progress', done: 'Done' }
+const COLUMN_LABEL = { todo: 'To Do', inprogress: 'In Progress', waiting: 'Waiting / Blocked', done: 'Done' }
 
 const PRESETS = {
   todo:       ['Perlu dikerjakan ulang', 'Belum siap dikerjakan', 'Menunggu input lain'],
   inprogress: ['Mulai dikerjakan', 'Sedang dalam review', 'Tahap A selesai, lanjut ke B', 'Unblock dari dependensi lain'],
+  waiting:    ['Menunggu vendor', 'Menunggu approval atasan', 'Menunggu tim lain selesai', 'Menunggu feedback client', 'Menunggu data/aset dari pihak lain'],
   done:       ['Semua tahap selesai', 'Review & approval sudah OK', 'Testing passed', 'Delivered ke client'],
 }
+
+// Waiting column gets a special amber accent
+const WAITING_STYLE = 'bg-amber-50 border-amber-200 text-amber-800'
 
 export default function MoveReasonModal({ taskTitle, fromStatus, toStatus, onConfirm, onCancel }) {
   const [reason, setReason]   = useState('')
@@ -30,7 +34,7 @@ export default function MoveReasonModal({ taskTitle, fromStatus, toStatus, onCon
       onClick={e => e.target === e.currentTarget && onCancel()}>
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-100 animate-scale-in">
         {/* Header */}
-        <div className="flex items-start justify-between px-5 pt-5 pb-4">
+        <div className={`flex items-start justify-between px-5 pt-5 pb-4 ${toStatus === 'waiting' ? 'rounded-t-2xl bg-amber-50/60' : ''}`}>
           <div>
             <h3 className="font-display font-semibold text-slate-800 text-sm">Pindah Task</h3>
             <div className="flex items-center gap-1.5 mt-1.5">

@@ -15,7 +15,7 @@ import CalendarModal   from './CalendarModal'
 import ReportModal     from './ReportModal'
 import { useTasks }    from '../hooks/useTasks'
 
-const STATUSES        = ['todo', 'inprogress', 'done']
+const STATUSES        = ['todo', 'inprogress', 'waiting', 'done']
 const PRIORITY_FILTER = ['all', 'high', 'medium', 'low']
 
 export default function KanbanBoard({ user, onSignOut }) {

@@ -10,6 +10,7 @@ const PRIORITIES = [
 const STATUSES = [
   { value: 'todo',       label: 'To Do' },
   { value: 'inprogress', label: 'In Progress' },
+  { value: 'waiting',    label: 'Waiting / Blocked' },
   { value: 'done',       label: 'Done' },
 ]
 

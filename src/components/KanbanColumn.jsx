@@ -10,6 +10,7 @@ const COLUMN_CONFIG = {
     headerBg: 'bg-slate-50',
     accent:   'border-slate-200',
     countBg:  'bg-slate-100 text-slate-600',
+    emptyIcon: '📋',
   },
   inprogress: {
     label:    'In Progress',
@@ -17,6 +18,15 @@ const COLUMN_CONFIG = {
     headerBg: 'bg-brand-50',
     accent:   'border-brand-200',
     countBg:  'bg-brand-100 text-brand-700',
+    emptyIcon: '⚡',
+  },
+  waiting: {
+    label:    'Waiting / Blocked',
+    dotColor: 'bg-amber-400',
+    headerBg: 'bg-amber-50',
+    accent:   'border-amber-200',
+    countBg:  'bg-amber-100 text-amber-700',
+    emptyIcon: '⏳',
   },
   done: {
     label:    'Done',
@@ -24,6 +34,7 @@ const COLUMN_CONFIG = {
     headerBg: 'bg-emerald-50',
     accent:   'border-emerald-200',
     countBg:  'bg-emerald-100 text-emerald-700',
+    emptyIcon: '✅',
   },
 }
 
@@ -79,10 +90,12 @@ export default function KanbanColumn({ status, tasks, onAddTask, onEditTask, onA
 
         {tasks.length === 0 && (
           <div className="flex flex-col items-center justify-center py-8 text-center">
-            <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mb-2">
-              <Plus className="w-5 h-5 text-slate-300" />
+            <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mb-2 text-lg">
+              {cfg.emptyIcon}
             </div>
-            <p className="text-xs text-slate-400">Drop tasks here</p>
+            <p className="text-xs text-slate-400">
+              {status === 'waiting' ? 'Drag task yang tertahan di sini' : 'Drop tasks here'}
+            </p>
             {canAdd && (
               <button
                 onClick={() => onAddTask(status)}

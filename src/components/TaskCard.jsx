@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Calendar, User, ChevronDown, Edit3, GripVertical, MessageSquarePlus, Send, X } from 'lucide-react'
+import { Calendar, User, ChevronDown, Edit3, GripVertical, MessageSquarePlus, Send, X, Clock } from 'lucide-react'
 import { format, isPast, isToday } from 'date-fns'
 import ActivityLog from './ActivityLog'
 
@@ -54,7 +54,11 @@ export default function TaskCard({ task, onEdit, onAddNote }) {
 
   return (
     <div ref={setNodeRef} style={style}
-      className={`group bg-white rounded-xl border border-slate-200 shadow-card hover:shadow-card-hover transition-all duration-200 ${isDragging ? 'dragging-card' : ''}`}>
+      className={`group bg-white rounded-xl border shadow-card hover:shadow-card-hover transition-all duration-200 ${isDragging ? 'dragging-card' : ''} ${
+        task.status === 'waiting'
+          ? 'border-amber-200 border-l-4 border-l-amber-400 bg-amber-50/30'
+          : 'border-slate-200'
+      }`}>
       <div className="p-3.5">
         {/* Drag handle + title row */}
         <div className="flex items-start gap-2">
@@ -78,8 +82,20 @@ export default function TaskCard({ task, onEdit, onAddNote }) {
               </div>
             )}
 
+            {/* Waiting badge */}
+            {task.status === 'waiting' && (
+              <div className="flex items-center gap-1 mb-1.5 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 w-fit">
+                <Clock className="w-3 h-3 text-amber-600 animate-pulse" />
+                <span className="text-[10px] font-semibold text-amber-700">Waiting / Blocked</span>
+              </div>
+            )}
+
             {/* Title */}
-            <p className={`text-sm font-medium text-slate-800 leading-snug ${task.status === 'done' ? 'line-through text-slate-400' : ''}`}>
+            <p className={`text-sm font-medium leading-snug ${
+              task.status === 'done'    ? 'line-through text-slate-400' :
+              task.status === 'waiting' ? 'text-amber-900' :
+              'text-slate-800'
+            }`}>
               {task.title}
             </p>
 
