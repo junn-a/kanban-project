@@ -4,13 +4,15 @@ import {
   closestCorners,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { Layers, LogOut, Plus, Search, X, Trophy } from 'lucide-react'
+import { Layers, LogOut, Plus, Search, X, Trophy, CalendarDays, BarChart2 } from 'lucide-react'
 
 import KanbanColumn    from './KanbanColumn'
 import TaskCard        from './TaskCard'
 import TaskModal       from './TaskModal'
 import MoveReasonModal from './MoveReasonModal'
 import ScoreModal      from './ScoreModal'
+import CalendarModal   from './CalendarModal'
+import ReportModal     from './ReportModal'
 import { useTasks }    from '../hooks/useTasks'
 
 const STATUSES        = ['todo', 'inprogress', 'done']
@@ -24,6 +26,8 @@ export default function KanbanBoard({ user, onSignOut }) {
   const [search, setSearch]                 = useState('')
   const [filterPriority, setFilterPriority] = useState('all')
   const [scoreOpen, setScoreOpen]           = useState(false)
+  const [calendarOpen, setCalendarOpen]     = useState(false)
+  const [reportOpen, setReportOpen]         = useState(false)
   const [pendingMove, setPendingMove]       = useState(null)
   const dragOriginStatus                    = useRef(null)
 
@@ -185,6 +189,24 @@ export default function KanbanBoard({ user, onSignOut }) {
               ))}
             </div>
 
+            {/* Calendar */}
+            <button
+              onClick={() => setCalendarOpen(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-xl bg-brand-50 border border-brand-200 text-brand-600 hover:bg-brand-100 transition"
+              title="Kalender Aktivitas"
+            >
+              <CalendarDays className="w-4 h-4" />
+            </button>
+
+            {/* Report */}
+            <button
+              onClick={() => setReportOpen(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-xl bg-violet-50 border border-violet-200 text-violet-600 hover:bg-violet-100 transition"
+              title="Laporan Performa"
+            >
+              <BarChart2 className="w-4 h-4" />
+            </button>
+
             {/* Trophy / score */}
             <button
               onClick={() => setScoreOpen(true)}
@@ -296,6 +318,21 @@ export default function KanbanBoard({ user, onSignOut }) {
           userId={user.id}
           tasks={tasks}
           onClose={() => setScoreOpen(false)}
+        />
+      )}
+
+      {calendarOpen && (
+        <CalendarModal
+          userId={user.id}
+          onClose={() => setCalendarOpen(false)}
+        />
+      )}
+
+      {reportOpen && (
+        <ReportModal
+          userId={user.id}
+          tasks={tasks}
+          onClose={() => setReportOpen(false)}
         />
       )}
     </div>
