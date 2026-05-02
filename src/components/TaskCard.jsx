@@ -4,6 +4,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { Calendar, User, ChevronDown, Edit3, GripVertical, MessageSquarePlus, Send, X, Clock } from 'lucide-react'
 import { format, isPast, isToday } from 'date-fns'
 import ActivityLog from './ActivityLog'
+import { useSteps } from '../hooks/useSteps'
 
 const PRIORITY_BADGE = {
   low:    'badge-priority-low',
@@ -23,6 +24,8 @@ export default function TaskCard({ task, onEdit, onAddNote }) {
   const [quickNote, setQuickNote]           = useState('')
   const [noteSaving, setNoteSaving]         = useState(false)
   const [activityKey, setActivityKey]       = useState(0) // force re-fetch after new note
+  const [stepsOpen, setStepsOpen]           = useState(false)
+  const { steps } = useSteps(task.id)
 
   const {
     attributes, listeners, setNodeRef,
@@ -166,6 +169,59 @@ export default function TaskCard({ task, onEdit, onAddNote }) {
               </div>
             </div>
             <p className="text-[10px] text-slate-400 mt-1">⌘Enter untuk kirim</p>
+          </div>
+        )}
+
+        {/* Steps progress (if any) */}
+        {steps.length > 0 && (
+          <div className="mt-2.5 space-y-1.5">
+            {/* Progress bar */}
+            <button onClick={() => setStepsOpen(o => !o)}
+              className="w-full text-left group/steps">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] text-slate-500 font-medium">
+                  Tahapan: {steps.filter(s=>s.status==='done').length}/{steps.length}
+                </span>
+                <span className="text-[10px] text-slate-400 group-hover/steps:text-brand-500 transition">
+                  {stepsOpen ? '▲ Sembunyikan' : '▼ Lihat'}
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.round((steps.filter(s=>s.status==='done').length/steps.length)*100)}%`,
+                    background: steps.every(s=>s.status==='done') ? '#10b981' : '#3b82f6'
+                  }} />
+              </div>
+            </button>
+
+            {/* Collapsed step list */}
+            {stepsOpen && (
+              <div className="space-y-1 animate-slide-down">
+                {steps.map((s, i) => (
+                  <div key={s.id} className="flex items-center gap-2 text-xs">
+                    <span className={`w-3.5 h-3.5 rounded-full flex-shrink-0 flex items-center justify-center border ${
+                      s.status === 'done'       ? 'bg-emerald-500 border-emerald-500' :
+                      s.status === 'inprogress' ? 'bg-brand-500 border-brand-500' :
+                      'bg-white border-slate-300'
+                    }`}>
+                      {s.status === 'done' && (
+                        <svg className="w-2 h-2 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                      {s.status === 'inprogress' && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                    </span>
+                    <span className={`flex-1 truncate ${s.status==='done' ? 'line-through text-slate-400' : 'text-slate-600'}`}>
+                      {i+1}. {s.title}
+                    </span>
+                    {s.pic_email && (
+                      <span className="text-[9px] text-slate-400 truncate max-w-[60px]">{s.pic_email.split('@')[0]}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
