@@ -63,7 +63,7 @@ export function useTasks(userId) {
     const oldStatus = task.status
     setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus, position: newPosition } : t))
     await supabase.from('tasks').update({ status: newStatus, position: newPosition }).eq('id', id)
-    const labels = { todo: 'To Do', inprogress: 'In Progress', done: 'Done' }
+    const labels = { todo: 'To Do', inprogress: 'In Progress', waiting: 'Waiting / Blocked', done: 'Done' }
     await logActivity(id, userId, 'moved', { from: labels[oldStatus], to: labels[newStatus], reason })
   }
 
