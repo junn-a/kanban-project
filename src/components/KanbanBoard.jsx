@@ -60,7 +60,18 @@ export default function KanbanBoard({ user, onSignOut }) {
     return t
   }, [tasks, search, filterPriority])
 
-  const byStatus   = (s) => filtered.filter(t => t.status === s).sort((a, b) => a.position - b.position)
+  const byStatus = (s) => {
+    const col = filtered.filter(t => t.status === s)
+    if (s === 'inprogress' || s === 'waiting') {
+      return col.sort((a, b) => {
+        if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date)
+        if (a.due_date && !b.due_date) return -1
+        if (!a.due_date && b.due_date) return 1
+        return a.position - b.position
+      })
+    }
+    return col.sort((a, b) => a.position - b.position)
+  }
   const activeTask = activeId ? tasks.find(t => t.id === activeId) : null
 
   const total    = tasks.length
