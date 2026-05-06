@@ -1,6 +1,8 @@
-export const config = { runtime: 'edge' }
+// /api/analyze.js
+export const config = { runtime: 'edge' } // Opsional: Menggunakan Edge agar lebih cepat
 
 export default async function handler(req) {
+  // Hanya izinkan POST
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
@@ -10,7 +12,7 @@ export default async function handler(req) {
 
   const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'GROQ_API_KEY not configured' }), {
+    return new Response(JSON.stringify({ error: 'GROQ_API_KEY is missing' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     })
@@ -33,26 +35,15 @@ export default async function handler(req) {
       }),
     })
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}))
-      throw new Error(err?.error?.message || `Groq HTTP ${response.status}`)
-    }
-
     const data = await response.json()
-
-    // Normalize ke format yang sama dengan sebelumnya
-    // supaya AIStrategyPanel.jsx tidak perlu diubah
     const text = data.choices?.[0]?.message?.content || ''
-    const normalized = {
-      content: [{ type: 'text', text }],
-    }
-
-    return new Response(JSON.stringify(normalized), {
+    
+    // Normalisasi output agar cocok dengan AIStrategyPanel.jsx[cite: 1, 2]
+    return new Response(JSON.stringify({
+      content: [{ type: 'text', text }]
+    }), {
       status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-      },
+      headers: { 'Content-Type': 'application/json' },
     })
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), {
