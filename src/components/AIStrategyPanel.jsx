@@ -1,257 +1,317 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { X, Sparkles, RefreshCw, Loader2, ChevronRight, AlertCircle, Clock, CheckCircle2, Pause } from 'lucide-react'
-import { format } from 'date-fns'
-import { id } from 'date-fns/locale'
+import { useState, useEffect, useCallback } from 'react'
+import {
+  Brain, RefreshCw, ChevronDown, ChevronUp, AlertTriangle,
+  TrendingUp, Lightbulb, Target, Zap, Clock, CheckCircle2,
+  AlertCircle, Info, Sparkles, BarChart3
+} from 'lucide-react'
 
-const CACHE_DURATION_MS = 30 * 60 * 1000 // 30 menit
+/* ─── helpers ─── */
+const STATUS_LABEL = { todo: 'To Do', inprogress: 'In Progress', done: 'Done' }
+const PRIORITY_COLOR = { high: 'text-red-600', medium: 'text-yellow-600', low: 'text-green-600' }
 
-// Build prompt dari data task real
 function buildPrompt(tasks) {
-  const today = format(new Date(), 'EEEE, d MMMM yyyy', { locale: id })
-
-  const byStatus = (s) => tasks.filter(t => t.status === s)
-  const todo      = byStatus('todo')
-  const inprog    = byStatus('inprogress')
-  const waiting   = byStatus('waiting')
-  const done      = byStatus('done')
-
-  const taskLine = (t) => {
-    const parts = [`- ${t.title}`]
-    if (t.priority)  parts.push(`[${t.priority}]`)
-    if (t.due_date) {
-      const due     = new Date(t.due_date + 'T00:00:00')
-      const todayD  = new Date(); todayD.setHours(0,0,0,0)
-      const diff    = Math.ceil((due - todayD) / 86400000)
-      if (diff < 0)        parts.push(`[OVERDUE ${Math.abs(diff)} hari]`)
-      else if (diff === 0) parts.push(`[DUE HARI INI]`)
-      else                 parts.push(`[due ${diff} hari lagi]`)
-    }
-    if (t.assignee)   parts.push(`(PIC: ${t.assignee})`)
-    if (t.description) parts.push(`→ ${t.description.slice(0, 80)}`)
-    return parts.join(' ')
+  const summary = {
+    total: tasks.length,
+    todo: tasks.filter(t => t.status === 'todo').length,
+    inprogress: tasks.filter(t => t.status === 'inprogress').length,
+    done: tasks.filter(t => t.status === 'done').length,
+    high: tasks.filter(t => t.priority === 'high').length,
+    overdue: tasks.filter(t => t.due_date && new Date(t.due_date) < new Date() && t.status !== 'done').length,
   }
+  const taskList = tasks.map(t =>
+    `- [${STATUS_LABEL[t.status] || t.status}] "${t.title}" | Priority: ${t.priority || 'none'} | Due: ${t.due_date || 'none'} | Tags: ${(t.tags || []).join(', ') || 'none'}`
+  ).join('\n')
 
-  return `Kamu adalah asisten produktivitas yang cerdas dan pragmatis. Hari ini adalah ${today}.
+  return `Kamu adalah analis produktivitas kanban yang berpengalaman. Berikut data kanban board seorang pengguna:
 
-Berikut adalah status board Kanban saat ini:
+RINGKASAN:
+- Total task: ${summary.total}
+- To Do: ${summary.todo} | In Progress: ${summary.inprogress} | Done: ${summary.done}
+- High priority: ${summary.high}
+- Overdue (belum selesai melewati due date): ${summary.overdue}
 
-📋 TO DO (${todo.length} task):
-${todo.length ? todo.map(taskLine).join('\n') : '(kosong)'}
+DAFTAR TASK:
+${taskList}
 
-⚡ IN PROGRESS (${inprog.length} task):
-${inprog.length ? inprog.map(taskLine).join('\n') : '(kosong)'}
-
-⏳ WAITING/BLOCKED (${waiting.length} task):
-${waiting.length ? waiting.map(taskLine).join('\n') : '(kosong)'}
-
-✅ DONE HARI INI (${done.length} task):
-${done.length ? done.slice(0,5).map(taskLine).join('\n') : '(belum ada)'}
-
-Berikan analisis dan strategi harian yang KONKRET dan ACTIONABLE dalam format berikut:
-
-## 🎯 Penilaian Situasi
-[2-3 kalimat ringkas tentang kondisi board hari ini — jujur, langsung ke poin]
-
-## 🔥 Prioritas Utama Hari Ini
-[3-5 task yang HARUS diselesaikan hari ini, dengan alasan singkat per task]
-
-## ⚠️ Perhatian Khusus
-[task overdue, risiko, atau bottleneck yang perlu segera ditangani]
-
-## 💡 Saran Strategi
-[2-3 saran praktis untuk memaksimalkan produktivitas hari ini]
-
-## 📊 Quick Score
-[Nilai kondisi board hari ini: X/10, dengan 1 kalimat alasan]
-
-Gunakan bahasa Indonesia yang natural, padat, dan tidak bertele-tele. Maksimal 350 kata total.`
+Berikan analisis dalam format JSON ONLY (tanpa markdown, tanpa backtick). Struktur JSON:
+{
+  "health_score": <angka 0-100>,
+  "health_label": "<Kritis|Perlu Perhatian|Cukup Baik|Baik|Sangat Baik>",
+  "summary": "<1-2 kalimat ringkasan kondisi board>",
+  "bottlenecks": ["<masalah 1>", "<masalah 2>"],
+  "quick_wins": ["<saran cepat 1>", "<saran cepat 2>"],
+  "recommendations": [
+    {"title": "<judul saran>", "detail": "<penjelasan singkat>", "priority": "<high|medium|low>"}
+  ],
+  "focus_task": "<judul task paling mendesak yang harus diselesaikan sekarang>",
+  "focus_reason": "<alasan singkat kenapa task tersebut>"
+}`
 }
 
-// Parse markdown sederhana ke React elements
-function renderMarkdown(text) {
-  const lines = text.split('\n')
-  const elements = []
-  let i = 0
+/* ─── sub-components ─── */
+function HealthBadge({ score, label }) {
+  const color =
+    score >= 80 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+    score >= 60 ? 'bg-blue-100 text-blue-700 border-blue-200' :
+    score >= 40 ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
+                  'bg-red-100 text-red-700 border-red-200'
+  const ring =
+    score >= 80 ? 'bg-emerald-500' :
+    score >= 60 ? 'bg-blue-500' :
+    score >= 40 ? 'bg-yellow-500' :
+                  'bg-red-500'
 
-  while (i < lines.length) {
-    const line = lines[i]
-
-    if (line.startsWith('## ')) {
-      elements.push(
-        <h3 key={i} className="text-sm font-semibold text-slate-800 mt-4 mb-1.5 flex items-center gap-1.5">
-          {line.replace('## ', '')}
-        </h3>
-      )
-    } else if (line.startsWith('- ') || line.match(/^\d+\./)) {
-      const items = []
-      while (i < lines.length && (lines[i].startsWith('- ') || lines[i].match(/^\d+\./))) {
-        items.push(
-          <li key={i} className="flex items-start gap-2 text-xs text-slate-700 leading-relaxed">
-            <ChevronRight className="w-3 h-3 text-brand-400 flex-shrink-0 mt-0.5" />
-            <span>{lines[i].replace(/^[-\d.]+\s*/, '')}</span>
-          </li>
-        )
-        i++
-      }
-      elements.push(<ul key={`ul-${i}`} className="space-y-1 mb-2">{items}</ul>)
-      continue
-    } else if (line.trim()) {
-      elements.push(
-        <p key={i} className="text-xs text-slate-600 leading-relaxed mb-1.5">{line}</p>
-      )
-    }
-    i++
-  }
-  return elements
+  return (
+    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold ${color}`}>
+      <span className={`w-2 h-2 rounded-full ${ring}`} />
+      {label} · {score}/100
+    </div>
+  )
 }
 
-export default function AIStrategyPanel({ tasks, onClose }) {
-  const [result, setResult]     = useState('')
-  const [loading, setLoading]   = useState(false)
-  const [error, setError]       = useState('')
-  const [lastGen, setLastGen]   = useState(null)
-  const cacheRef                = useRef({ text: '', ts: 0 })
+function Section({ icon: Icon, title, color = 'text-slate-600', children, defaultOpen = true }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="border border-slate-200/80 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-3 py-2.5 bg-slate-50/80 hover:bg-slate-100/80 transition text-left"
+      >
+        <div className="flex items-center gap-2">
+          <Icon className={`w-3.5 h-3.5 ${color}`} />
+          <span className="text-xs font-semibold text-slate-700">{title}</span>
+        </div>
+        {open ? <ChevronUp className="w-3 h-3 text-slate-400" /> : <ChevronDown className="w-3 h-3 text-slate-400" />}
+      </button>
+      {open && <div className="px-3 py-2.5 bg-white space-y-1.5">{children}</div>}
+    </div>
+  )
+}
 
-  const generate = useCallback(async (force = false) => {
-    // Pakai cache kalau masih fresh dan tidak di-force
-    const now = Date.now()
-    if (!force && cacheRef.current.text && (now - cacheRef.current.ts) < CACHE_DURATION_MS) {
-      setResult(cacheRef.current.text)
-      setLastGen(new Date(cacheRef.current.ts))
-      return
-    }
+function Pill({ text, variant = 'default' }) {
+  const cls = {
+    default: 'bg-slate-100 text-slate-600',
+    high:    'bg-red-50 text-red-600 border border-red-200',
+    medium:  'bg-yellow-50 text-yellow-700 border border-yellow-200',
+    low:     'bg-green-50 text-green-700 border border-green-200',
+  }[variant] || 'bg-slate-100 text-slate-600'
 
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium ${cls}`}>
+      {text}
+    </span>
+  )
+}
+
+/* ─── main component ─── */
+export default function AIStrategyPanel({ tasks }) {
+  const [result, setResult]   = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError]     = useState(null)
+  const [lastRun, setLastRun] = useState(null)
+
+  const analyze = useCallback(async () => {
+    if (!tasks?.length) return
     setLoading(true)
-    setError('')
-    setResult('')
+    setError(null)
 
     try {
-      const prompt = buildPrompt(tasks)
-
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model:      'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-20250514',
           max_tokens: 1000,
-          messages:   [{ role: 'user', content: prompt }],
+          messages: [{ role: 'user', content: buildPrompt(tasks) }],
         }),
       })
 
       const data = await response.json()
-
-      if (!response.ok) throw new Error(data?.error?.message || 'API error')
-
-      const text = data.content?.find(c => c.type === 'text')?.text || ''
-      cacheRef.current = { text, ts: Date.now() }
-      setResult(text)
-      setLastGen(new Date())
-    } catch (err) {
-      setError(err.message || 'Gagal generate analisis')
+      const text = data.content?.map(b => b.text || '').join('').trim()
+      const cleaned = text.replace(/```json|```/g, '').trim()
+      const parsed = JSON.parse(cleaned)
+      setResult(parsed)
+      setLastRun(new Date())
+    } catch (e) {
+      setError('Gagal menganalisis. Periksa koneksi atau coba lagi.')
+      console.error(e)
     } finally {
       setLoading(false)
     }
   }, [tasks])
 
-  // Auto-generate saat panel pertama dibuka
-  useEffect(() => { generate() }, [])
+  // Auto-analyze on mount
+  useEffect(() => {
+    if (tasks?.length > 0 && !result && !loading) analyze()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  const activeTasks   = tasks.filter(t => t.status !== 'done')
-  const overdueTasks  = tasks.filter(t =>
-    t.status !== 'done' && t.due_date && t.due_date < format(new Date(), 'yyyy-MM-dd')
-  )
-  const todayTasks    = tasks.filter(t =>
-    t.status !== 'done' && t.due_date === format(new Date(), 'yyyy-MM-dd')
+  /* ── empty state ── */
+  if (!tasks?.length) return (
+    <div className="w-full sm:w-72 lg:w-80 flex-shrink-0 flex flex-col gap-3">
+      <PanelHeader loading={false} onRefresh={analyze} lastRun={null} />
+      <div className="flex flex-col items-center justify-center py-12 text-center px-4">
+        <Brain className="w-10 h-10 text-slate-300 mb-3" />
+        <p className="text-sm text-slate-400">Belum ada task untuk dianalisis.</p>
+      </div>
+    </div>
   )
 
   return (
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 z-40 bg-brand-950/30 backdrop-blur-[2px] animate-fade-in"
-        onClick={onClose} />
+    <div className="w-full sm:w-72 lg:w-80 flex-shrink-0 flex flex-col gap-3">
+      <PanelHeader loading={loading} onRefresh={analyze} lastRun={lastRun} />
 
-      {/* Panel */}
-      <div className="fixed right-0 top-0 h-full w-full max-w-sm z-50 flex flex-col bg-white shadow-2xl border-l border-slate-200 animate-slide-in-right">
+      {/* Error */}
+      {error && (
+        <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600">
+          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-brand-600 to-violet-600 flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-white" />
+      {/* Loading skeleton */}
+      {loading && !result && <LoadingSkeleton />}
+
+      {/* Results */}
+      {result && (
+        <div className="flex flex-col gap-2.5">
+
+          {/* Health score */}
+          <div className="rounded-xl border border-slate-200 bg-white p-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Board Health</span>
+              <HealthBadge score={result.health_score} label={result.health_label} />
             </div>
-            <div>
-              <p className="font-display font-semibold text-white text-sm">AI Daily Strategy</p>
-              <p className="text-white/70 text-[10px]">Analisis & saran berdasarkan board kamu</p>
+            <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-1000"
+                style={{
+                  width: `${result.health_score}%`,
+                  background: result.health_score >= 80 ? '#10b981' :
+                               result.health_score >= 60 ? '#3b82f6' :
+                               result.health_score >= 40 ? '#f59e0b' : '#ef4444'
+                }}
+              />
             </div>
+            <p className="text-xs text-slate-500 leading-relaxed">{result.summary}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/20 transition">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
 
-        {/* Quick stats */}
-        <div className="grid grid-cols-3 gap-0 border-b border-slate-100 flex-shrink-0">
-          {[
-            { icon: <AlertCircle className="w-3.5 h-3.5 text-red-500" />,    val: overdueTasks.length, label: 'Overdue',   bg: overdueTasks.length > 0 ? 'bg-red-50' : 'bg-slate-50' },
-            { icon: <Clock className="w-3.5 h-3.5 text-amber-500" />,        val: todayTasks.length,   label: 'Due Today',  bg: todayTasks.length > 0 ? 'bg-amber-50' : 'bg-slate-50' },
-            { icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />,val: activeTasks.length,  label: 'Active',    bg: 'bg-slate-50' },
-          ].map(s => (
-            <div key={s.label} className={`${s.bg} px-3 py-2.5 text-center border-r border-slate-100 last:border-0`}>
-              <div className="flex justify-center mb-0.5">{s.icon}</div>
-              <div className="font-display font-bold text-slate-800 text-lg leading-none">{s.val}</div>
-              <div className="text-[9px] text-slate-500 mt-0.5">{s.label}</div>
+          {/* Focus task */}
+          {result.focus_task && (
+            <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 flex flex-col gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <Target className="w-3.5 h-3.5 text-violet-600" />
+                <span className="text-xs font-semibold text-violet-700">Fokus Sekarang</span>
+              </div>
+              <p className="text-xs font-semibold text-violet-900">"{result.focus_task}"</p>
+              {result.focus_reason && (
+                <p className="text-[11px] text-violet-600 leading-relaxed">{result.focus_reason}</p>
+              )}
             </div>
-          ))}
-        </div>
+          )}
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center h-full gap-4 py-16">
-              <div className="relative">
-                <div className="w-12 h-12 rounded-full border-2 border-brand-200 border-t-brand-600 animate-spin" />
-                <Sparkles className="w-5 h-5 text-brand-600 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-              </div>
-              <div className="text-center">
-                <p className="text-sm font-medium text-slate-700">AI sedang menganalisis...</p>
-                <p className="text-xs text-slate-400 mt-1">Membaca {tasks.length} task di board kamu</p>
-              </div>
-            </div>
-          ) : error ? (
-            <div className="flex flex-col items-center justify-center h-full gap-3 py-16 text-center">
-              <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center">
-                <AlertCircle className="w-6 h-6 text-red-500" />
-              </div>
-              <p className="text-sm text-slate-700 font-medium">Gagal generate analisis</p>
-              <p className="text-xs text-slate-400">{error}</p>
-              <button onClick={() => generate(true)} className="btn-primary text-xs py-2 px-4 mt-2">
-                Coba Lagi
-              </button>
-            </div>
-          ) : result ? (
-            <div className="space-y-1 animate-fade-in">
-              {renderMarkdown(result)}
-            </div>
-          ) : null}
-        </div>
+          {/* Bottlenecks */}
+          {result.bottlenecks?.length > 0 && (
+            <Section icon={AlertTriangle} title="Bottleneck" color="text-orange-500">
+              {result.bottlenecks.map((b, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs text-slate-600">
+                  <span className="mt-1 w-1.5 h-1.5 rounded-full bg-orange-400 flex-shrink-0" />
+                  {b}
+                </div>
+              ))}
+            </Section>
+          )}
 
-        {/* Footer */}
-        <div className="border-t border-slate-100 px-5 py-3 flex items-center justify-between flex-shrink-0 bg-slate-50">
-          <div className="text-[10px] text-slate-400">
-            {lastGen
-              ? `Update: ${format(lastGen, 'HH:mm')} · cache 30 mnt`
-              : 'Belum pernah di-generate'}
-          </div>
-          <button
-            onClick={() => generate(true)}
-            disabled={loading}
-            className="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-800 disabled:opacity-40 transition"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
+          {/* Quick wins */}
+          {result.quick_wins?.length > 0 && (
+            <Section icon={Zap} title="Quick Wins" color="text-yellow-500">
+              {result.quick_wins.map((w, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs text-slate-600">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                  {w}
+                </div>
+              ))}
+            </Section>
+          )}
+
+          {/* Recommendations */}
+          {result.recommendations?.length > 0 && (
+            <Section icon={Lightbulb} title="Rekomendasi" color="text-brand-500" defaultOpen={false}>
+              {result.recommendations.map((r, i) => (
+                <div key={i} className="flex flex-col gap-1 p-2 rounded-lg bg-slate-50 border border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-700">{r.title}</span>
+                    <Pill text={r.priority} variant={r.priority} />
+                  </div>
+                  {r.detail && <p className="text-[11px] text-slate-500 leading-relaxed">{r.detail}</p>}
+                </div>
+              ))}
+            </Section>
+          )}
+
+          {/* Refresh note */}
+          {lastRun && (
+            <p className="text-[10px] text-slate-400 text-center">
+              Dianalisis {lastRun.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+              {' · '}
+              <button onClick={analyze} className="underline hover:text-slate-600 transition">Refresh</button>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ─── Panel Header ─── */
+function PanelHeader({ loading, onRefresh, lastRun }) {
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-violet-500 to-brand-600 flex items-center justify-center">
+          <Sparkles className="w-3.5 h-3.5 text-white" />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800 leading-none">AI Analysis</h3>
+          <p className="text-[10px] text-slate-400 mt-0.5">Powered by Claude</p>
         </div>
       </div>
-    </>
+      <button
+        onClick={onRefresh}
+        disabled={loading}
+        className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition text-slate-500 disabled:opacity-40"
+        title="Refresh analisis"
+      >
+        <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+      </button>
+    </div>
+  )
+}
+
+/* ─── Loading skeleton ─── */
+function LoadingSkeleton() {
+  return (
+    <div className="flex flex-col gap-2.5 animate-pulse">
+      <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+        <div className="flex justify-between">
+          <div className="h-3 w-20 bg-slate-100 rounded" />
+          <div className="h-5 w-28 bg-slate-100 rounded-full" />
+        </div>
+        <div className="h-2 w-full bg-slate-100 rounded-full" />
+        <div className="h-3 w-3/4 bg-slate-100 rounded" />
+        <div className="h-3 w-1/2 bg-slate-100 rounded" />
+      </div>
+      <div className="rounded-xl border border-violet-100 bg-violet-50 p-3 space-y-1.5">
+        <div className="h-3 w-24 bg-violet-100 rounded" />
+        <div className="h-3 w-full bg-violet-100 rounded" />
+        <div className="h-3 w-2/3 bg-violet-100 rounded" />
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+        <div className="h-3 w-20 bg-slate-100 rounded" />
+        <div className="h-3 w-full bg-slate-100 rounded" />
+        <div className="h-3 w-4/5 bg-slate-100 rounded" />
+      </div>
+      <p className="text-[10px] text-slate-400 text-center">Menganalisis board kamu…</p>
+    </div>
   )
 }
