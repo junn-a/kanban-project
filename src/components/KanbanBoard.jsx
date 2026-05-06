@@ -4,40 +4,57 @@ import {
   closestCorners,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { Layers, LogOut, Plus, Search, X, Trophy, CalendarDays, BarChart2 } from 'lucide-react'
+import { Layers, LogOut, Plus, Search, X, Trophy, CalendarDays, BarChart2, Bell, Folder, Sparkles } from 'lucide-react'
 
-import KanbanColumn    from './KanbanColumn'
-import TaskCard        from './TaskCard'
-import TaskModal       from './TaskModal'
-import MoveReasonModal from './MoveReasonModal'
-import ScoreModal      from './ScoreModal'
-import CalendarModal   from './CalendarModal'
-import ReportModal     from './ReportModal'
-import AIStrategyPanel from './AIStrategyPanel'   // ← NEW
-import { useTasks }    from '../hooks/useTasks'
+import KanbanColumn        from './KanbanColumn'
+import TaskCard            from './TaskCard'
+import TaskModal           from './TaskModal'
+import MoveReasonModal     from './MoveReasonModal'
+import ScoreModal          from './ScoreModal'
+import CalendarModal       from './CalendarModal'
+import ReportModal         from './ReportModal'
+import NotificationDropdown from './NotificationDropdown'
+import ProjectSelectorModal from './ProjectSelectorModal'
+import ProjectMemberModal   from './ProjectMemberModal'
+import AIStrategyPanel      from './AIStrategyPanel'
+import { useTasks }         from '../hooks/useTasks'
+import { useProjects, useMembers } from '../hooks/useProjects'
+import { useNotifications } from '../hooks/useNotifications'
 
-const STATUSES        = ['todo', 'inprogress', 'done']
+const STATUSES        = ['todo', 'inprogress', 'waiting', 'done']
 const PRIORITY_FILTER = ['all', 'high', 'medium', 'low']
 
 export default function KanbanBoard({ user, onSignOut }) {
-  const { tasks, loading, addTask, updateTask, deleteTask, moveTask, moveTaskWithReason, addNote } = useTasks(user.id)
+  /* ── state (all declared before any hook that uses them) ── */
+  const [currentProject, setCurrentProject] = useState(null)
 
-  const [modal, setModal]                   = useState(null)
-  const [activeId, setActiveId]             = useState(null)
-  const [search, setSearch]                 = useState('')
+  const { tasks, loading, addTask, updateTask, deleteTask, moveTask, moveTaskWithReason, addNote } =
+    useTasks(user.id, currentProject?.id)
+
+  const [modal, setModal]                 = useState(null)
+  const [activeId, setActiveId]           = useState(null)
+  const [search, setSearch]               = useState('')
   const [filterPriority, setFilterPriority] = useState('all')
-  const [scoreOpen, setScoreOpen]           = useState(false)
-  const [calendarOpen, setCalendarOpen]     = useState(false)
-  const [reportOpen, setReportOpen]         = useState(false)
-  const [pendingMove, setPendingMove]       = useState(null)
-  const dragOriginStatus                    = useRef(null)
+  const [scoreOpen, setScoreOpen]         = useState(false)
+  const [calendarOpen, setCalendarOpen]   = useState(false)
+  const [reportOpen, setReportOpen]       = useState(false)
+  const [pendingMove, setPendingMove]     = useState(null)
+  const [projectOpen, setProjectOpen]     = useState(false)
+  const [memberProject, setMemberProject] = useState(null)
+  const [notifOpen, setNotifOpen]         = useState(false)
+  const [aiPanelOpen, setAiPanelOpen]     = useState(false)
+  const dragOriginStatus                  = useRef(null)
+
+  const { projects, createProject, deleteProject } = useProjects(user.id)
+  const { members }                                 = useMembers(currentProject?.id)
+  const { notifications, unreadCount, markAllRead, markRead } = useNotifications(user.id)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor,   { activationConstraint: { delay: 200, tolerance: 8 } })
   )
 
-  /* Filtered tasks */
+  /* ── filtered tasks ── */
   const filtered = useMemo(() => {
     let t = tasks
     if (search.trim()) {
@@ -48,14 +65,25 @@ export default function KanbanBoard({ user, onSignOut }) {
     return t
   }, [tasks, search, filterPriority])
 
-  const byStatus   = (s) => filtered.filter(t => t.status === s).sort((a, b) => a.position - b.position)
+  const byStatus = (s) => {
+    const col = filtered.filter(t => t.status === s)
+    if (s === 'inprogress' || s === 'waiting') {
+      return col.sort((a, b) => {
+        if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date)
+        if (a.due_date && !b.due_date) return -1
+        if (!a.due_date && b.due_date) return 1
+        return a.position - b.position
+      })
+    }
+    return col.sort((a, b) => a.position - b.position)
+  }
+
   const activeTask = activeId ? tasks.find(t => t.id === activeId) : null
+  const total      = tasks.length
+  const done       = tasks.filter(t => t.status === 'done').length
+  const progress   = total ? Math.round((done / total) * 100) : 0
 
-  const total    = tasks.length
-  const done     = tasks.filter(t => t.status === 'done').length
-  const progress = total ? Math.round((done / total) * 100) : 0
-
-  /* DnD */
+  /* ── DnD ── */
   const handleDragStart = ({ active }) => {
     setActiveId(active.id)
     dragOriginStatus.current = tasks.find(x => x.id === active.id)?.status ?? null
@@ -155,7 +183,19 @@ export default function KanbanBoard({ user, onSignOut }) {
             <span className="font-display font-semibold text-slate-800 text-base hidden sm:block">Taskflow</span>
           </div>
 
-          {/* Progress pill — desktop only */}
+          {/* Project selector pill */}
+          <button
+            onClick={() => setProjectOpen(true)}
+            className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 hover:bg-slate-200 transition flex-shrink-0 max-w-[160px]"
+          >
+            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: currentProject?.color || '#94a3b8' }} />
+            <span className="text-xs font-medium text-slate-600 truncate">
+              {currentProject ? currentProject.name : 'Personal'}
+            </span>
+            <Folder className="w-3 h-3 text-slate-400 flex-shrink-0" />
+          </button>
+
+          {/* Progress pill */}
           <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 flex-shrink-0">
             <div className="w-20 h-1.5 rounded-full bg-slate-200 overflow-hidden">
               <div className="h-full rounded-full bg-brand-500 transition-all duration-700" style={{ width: `${progress}%` }} />
@@ -180,7 +220,7 @@ export default function KanbanBoard({ user, onSignOut }) {
           </div>
 
           <div className="ml-auto flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-            {/* Priority filter — desktop */}
+            {/* Priority filter */}
             <div className="hidden md:flex items-center gap-1 p-1 rounded-lg bg-slate-100 border border-slate-200">
               {PRIORITY_FILTER.map(p => (
                 <button key={p} onClick={() => setFilterPriority(p)}
@@ -189,6 +229,40 @@ export default function KanbanBoard({ user, onSignOut }) {
                 </button>
               ))}
             </div>
+
+            {/* Notification */}
+            <div className="relative">
+              <button
+                onClick={() => setNotifOpen(o => !o)}
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 transition relative"
+                title="Notifikasi"
+              >
+                <Bell className="w-4 h-4" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+              {notifOpen && (
+                <NotificationDropdown
+                  notifications={notifications}
+                  unreadCount={unreadCount}
+                  onMarkAllRead={markAllRead}
+                  onMarkRead={markRead}
+                  onClose={() => setNotifOpen(false)}
+                />
+              )}
+            </div>
+
+            {/* AI Strategy */}
+            <button
+              onClick={() => setAiPanelOpen(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-xl bg-gradient-to-br from-violet-50 to-blue-50 border border-violet-200 text-violet-600 hover:from-violet-100 hover:to-blue-100 transition"
+              title="AI Analysis"
+            >
+              <Sparkles className="w-4 h-4" />
+            </button>
 
             {/* Calendar */}
             <button
@@ -208,7 +282,7 @@ export default function KanbanBoard({ user, onSignOut }) {
               <BarChart2 className="w-4 h-4" />
             </button>
 
-            {/* Trophy / score */}
+            {/* Trophy */}
             <button
               onClick={() => setScoreOpen(true)}
               className="w-8 h-8 flex items-center justify-center rounded-xl bg-yellow-50 border border-yellow-200 text-yellow-600 hover:bg-yellow-100 transition"
@@ -250,14 +324,7 @@ export default function KanbanBoard({ user, onSignOut }) {
             onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
           >
-            {/*
-              Mobile  : flex-col, full-width stacked columns
-              sm+     : flex-row, side-by-side columns with horizontal scroll
-              AI panel: kolom ke-5 setelah "Done", terpisah dari DnD area
-            */}
             <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:overflow-x-auto pb-4 items-stretch sm:items-start">
-
-              {/* ── Kanban columns (DnD) ── */}
               {STATUSES.map(s => (
                 <KanbanColumn
                   key={s}
@@ -268,13 +335,6 @@ export default function KanbanBoard({ user, onSignOut }) {
                   onAddNote={addNote}
                 />
               ))}
-
-              {/* ── Divider (desktop) ── */}
-              <div className="hidden sm:block w-px bg-slate-200/70 self-stretch flex-shrink-0 mx-1" />
-
-              {/* ── AI Strategy Panel (5th column) ── */}
-              <AIStrategyPanel tasks={tasks} />
-
             </div>
 
             <DragOverlay dropAnimation={{ duration: 180, easing: 'ease' }}>
@@ -293,12 +353,8 @@ export default function KanbanBoard({ user, onSignOut }) {
             </div>
             <span className="text-xs font-medium text-slate-500">Taskflow</span>
           </div>
-          <p className="text-xs text-slate-400">
-            © {new Date().getFullYear()} Taskflow. All rights reserved.
-          </p>
-          <p className="text-xs text-slate-400">
-            Built with React · Supabase · Vercel
-          </p>
+          <p className="text-xs text-slate-400">© {new Date().getFullYear()} Taskflow. All rights reserved.</p>
+          <p className="text-xs text-slate-400">Built with React · Supabase · Vercel</p>
         </div>
       </footer>
 
@@ -311,6 +367,8 @@ export default function KanbanBoard({ user, onSignOut }) {
           onDelete={modal.mode === 'edit' ? handleDelete : undefined}
           onClose={closeModal}
           onAddNote={modal.mode === 'edit' ? addNote : undefined}
+          members={members}
+          userId={user.id}
         />
       )}
 
@@ -325,25 +383,43 @@ export default function KanbanBoard({ user, onSignOut }) {
       )}
 
       {scoreOpen && (
-        <ScoreModal
-          userId={user.id}
-          tasks={tasks}
-          onClose={() => setScoreOpen(false)}
-        />
+        <ScoreModal userId={user.id} tasks={tasks} onClose={() => setScoreOpen(false)} />
       )}
 
       {calendarOpen && (
-        <CalendarModal
-          userId={user.id}
-          onClose={() => setCalendarOpen(false)}
-        />
+        <CalendarModal userId={user.id} onClose={() => setCalendarOpen(false)} />
       )}
 
       {reportOpen && (
-        <ReportModal
+        <ReportModal userId={user.id} tasks={tasks} onClose={() => setReportOpen(false)} />
+      )}
+
+      {projectOpen && (
+        <ProjectSelectorModal
+          projects={projects}
+          currentProjectId={currentProject?.id}
           userId={user.id}
+          onSelect={setCurrentProject}
+          onCreateProject={createProject}
+          onDeleteProject={deleteProject}
+          onManageMembers={(p) => setMemberProject(p)}
+          onClose={() => setProjectOpen(false)}
+        />
+      )}
+
+      {memberProject && (
+        <ProjectMemberModal
+          project={memberProject}
+          userId={user.id}
+          onClose={() => setMemberProject(null)}
+        />
+      )}
+
+      {/* AI Strategy Panel — slide-over drawer */}
+      {aiPanelOpen && (
+        <AIStrategyPanel
           tasks={tasks}
-          onClose={() => setReportOpen(false)}
+          onClose={() => setAiPanelOpen(false)}
         />
       )}
     </div>
