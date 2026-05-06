@@ -4,7 +4,7 @@ import {
   closestCorners,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { Layers, LogOut, Plus, Search, X, Trophy, CalendarDays, BarChart2, Bell, Folder, Users } from 'lucide-react'
+import { Layers, LogOut, Plus, Search, X, Trophy, CalendarDays, BarChart2, Bell, Folder, Users, Sparkles } from 'lucide-react'
 
 import KanbanColumn          from './KanbanColumn'
 import TaskCard               from './TaskCard'
@@ -16,6 +16,7 @@ import ReportModal            from './ReportModal'
 import NotificationDropdown   from './NotificationDropdown'
 import ProjectSelectorModal   from './ProjectSelectorModal'
 import ProjectMemberModal     from './ProjectMemberModal'
+import AIStrategyPanel        from './AIStrategyPanel'
 import { useTasks }           from '../hooks/useTasks'
 import { useProjects, useMembers } from '../hooks/useProjects'
 import { useNotifications }   from '../hooks/useNotifications'
@@ -37,6 +38,7 @@ export default function KanbanBoard({ user, onSignOut }) {
   const [projectOpen, setProjectOpen]       = useState(false)
   const [memberProject, setMemberProject]   = useState(null)
   const [notifOpen, setNotifOpen]           = useState(false)
+  const [aiPanelOpen, setAiPanelOpen]       = useState(false)
   const [currentProject, setCurrentProject] = useState(null)
   const dragOriginStatus                    = useRef(null)
 
@@ -248,6 +250,15 @@ export default function KanbanBoard({ user, onSignOut }) {
               )}
             </div>
 
+            {/* AI Strategy */}
+            <button
+              onClick={() => setAiPanelOpen(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-xl bg-gradient-to-br from-brand-50 to-violet-50 border border-brand-200 text-brand-600 hover:from-brand-100 hover:to-violet-100 transition"
+              title="AI Daily Strategy"
+            >
+              <Sparkles className="w-4 h-4" />
+            </button>
+
             {/* Calendar */}
             <button
               onClick={() => setCalendarOpen(true)}
@@ -414,6 +425,13 @@ export default function KanbanBoard({ user, onSignOut }) {
           project={memberProject}
           userId={user.id}
           onClose={() => setMemberProject(null)}
+        />
+      )}
+      {/* AI Strategy Panel */}
+      {aiPanelOpen && (
+        <AIStrategyPanel
+          tasks={tasks}
+          onClose={() => setAiPanelOpen(false)}
         />
       )}
     </div>
