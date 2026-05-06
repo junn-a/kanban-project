@@ -1,26 +1,42 @@
-import { useState, useEffect, useMemo } from 'react'
-import { X, Trophy, Flame, TrendingUp, Calendar, Star, Zap, Target, TrendingDown } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { X, Trophy, Flame, TrendingUp, Calendar, Zap, Target, TrendingDown } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { startOfDay, startOfWeek, startOfMonth, differenceInDays, format } from 'date-fns'
+import {
+  startOfDay, startOfWeek, startOfMonth,
+  subDays, differenceInDays, format
+} from 'date-fns'
+import {
+  Chart as ChartJS,
+  CategoryScale, LinearScale,
+  BarElement, LineElement, PointElement,
+  Tooltip, Filler
+} from 'chart.js'
+
+ChartJS.register(
+  CategoryScale, LinearScale,
+  BarElement, LineElement, PointElement,
+  Tooltip, Filler
+)
 
 // ─── Konstanta poin ───────────────────────────────────────────────────────────
-const PRIORITY_MUL  = { high: 3, medium: 2, low: 1 }
-const ACTION_PTS    = { created: 1, moved: 2, updated: 1, note: 1 }
-const DONE_BONUS    = 5   // bonus saat task dipindah ke Done
-const IDLE_PENALTY  = 1   // -1 per hari tanpa aktivitas apapun
-const OVERDUE_PEN   = 2   // -2 per task overdue (flat, bukan per hari)
+const PRIORITY_MUL = { high: 3, medium: 2, low: 1 }
+const ACTION_PTS   = { created: 1, moved: 2, updated: 1, note: 1 }
+const DONE_BONUS   = 5   // bonus saat task dipindah ke Done
+const IDLE_PENALTY = 1   // -1 per hari tanpa aktivitas
+const OVERDUE_PEN  = 2   // -2 per task overdue (flat)
 
 // ─── Hitung skor dengan penalti ───────────────────────────────────────────────
 function calcScore(activities, tasks, since, now) {
   let gained  = 0
   let penalty = 0
-  const sinceMs = since.getTime()
+  const sinceMs = since instanceof Date ? since.getTime() : new Date(since).getTime()
+  const nowMs   = now   instanceof Date ? now.getTime()   : new Date(now).getTime()
 
-  // 1. Poin dari aktivitas
   for (const a of activities) {
-    if (new Date(a.created_at).getTime() < sinceMs) continue
-    const task       = tasks.find(t => t.id === a.task_id)
-    const mul        = PRIORITY_MUL[task?.priority] ?? 1
+    const ts = new Date(a.created_at).getTime()
+    if (ts < sinceMs || ts >= nowMs) continue
+    const task = tasks.find(t => t.id === a.task_id)
+    const mul  = PRIORITY_MUL[task?.priority] ?? 1
     if (a.action === 'moved' && a.meta?.to === 'Done') {
       gained += DONE_BONUS * mul
     } else {
@@ -28,47 +44,78 @@ function calcScore(activities, tasks, since, now) {
     }
   }
 
-  // 2. Penalti idle — hari-hari dalam periode tanpa satu pun aktivitas
-  const totalDays   = Math.max(1, differenceInDays(now, since) + 1)
-  const activeDays  = new Set(
+  const totalDays  = Math.max(1, differenceInDays(new Date(nowMs), new Date(sinceMs)) + 1)
+  const activeDays = new Set(
     activities
-      .filter(a => new Date(a.created_at).getTime() >= sinceMs)
+      .filter(a => {
+        const ts = new Date(a.created_at).getTime()
+        return ts >= sinceMs && ts < nowMs
+      })
       .map(a => format(new Date(a.created_at), 'yyyy-MM-dd'))
   ).size
-  const idleDays    = Math.max(0, totalDays - activeDays)
-  penalty          += idleDays * IDLE_PENALTY
+  const idleDays = Math.max(0, totalDays - activeDays)
+  penalty += idleDays * IDLE_PENALTY
 
-  // 3. Penalti overdue — task yang lewat deadline & belum done
-  const today      = format(now, 'yyyy-MM-dd')
-  const overdueTasks = tasks.filter(t =>
-    t.status !== 'done' && t.due_date && t.due_date < today
+  const today = format(new Date(), 'yyyy-MM-dd')
+  const overdueTasks = tasks.filter(
+    t => t.status !== 'done' && t.due_date && t.due_date < today
   )
   penalty += overdueTasks.length * OVERDUE_PEN
 
-  const net = Math.max(0, gained - penalty)  // minimum 0
+  const net = Math.max(0, gained - penalty)
   return { gained, penalty, idleDays, overdueCount: overdueTasks.length, net, activeDays, totalDays }
+}
+
+// ─── Build data tren harian ───────────────────────────────────────────────────
+function buildDailyTrend(activities, tasks, days) {
+  const now    = new Date()
+  const result = []
+
+  for (let i = days - 1; i >= 0; i--) {
+    const dayStart = startOfDay(subDays(now, i))
+    const dayEnd   = new Date(dayStart.getTime() + 86_400_000)
+
+    const dayActs = activities.filter(a => {
+      const ts = new Date(a.created_at).getTime()
+      return ts >= dayStart.getTime() && ts < dayEnd.getTime()
+    })
+
+    const { gained, penalty, net } = calcScore(dayActs, tasks, dayStart, dayEnd)
+
+    result.push({
+      label: format(dayStart, days <= 14 ? 'EEE d/M' : 'd/M'),
+      gained,
+      penalty,
+      net,
+      idle: dayActs.length === 0,
+    })
+  }
+  return result
 }
 
 // ─── Rank berdasarkan skor nett ───────────────────────────────────────────────
 function getRank(score) {
-  if (score >= 200) return { label: 'Legendary', color: 'text-yellow-500', bg: 'bg-yellow-50 border-yellow-200', icon: '👑' }
-  if (score >= 100) return { label: 'Elite',     color: 'text-purple-600', bg: 'bg-purple-50 border-purple-200', icon: '💎' }
-  if (score >= 50)  return { label: 'Pro',       color: 'text-brand-600',  bg: 'bg-brand-50 border-brand-200',  icon: '🚀' }
-  if (score >= 20)  return { label: 'Active',    color: 'text-emerald-600',bg: 'bg-emerald-50 border-emerald-200', icon: '⚡' }
-  if (score >= 5)   return { label: 'Starter',   color: 'text-slate-600',  bg: 'bg-slate-50 border-slate-200',  icon: '🌱' }
-  return                   { label: 'Newbie',    color: 'text-slate-400',  bg: 'bg-slate-50 border-slate-200',  icon: '🐣' }
+  if (score >= 200) return { label: 'Legendary', color: 'text-yellow-500',  bg: 'bg-yellow-50 border-yellow-200',   icon: '👑' }
+  if (score >= 100) return { label: 'Elite',     color: 'text-purple-600',  bg: 'bg-purple-50 border-purple-200',   icon: '💎' }
+  if (score >= 50)  return { label: 'Pro',       color: 'text-brand-600',   bg: 'bg-brand-50 border-brand-200',     icon: '🚀' }
+  if (score >= 20)  return { label: 'Active',    color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200', icon: '⚡' }
+  if (score >= 5)   return { label: 'Starter',   color: 'text-slate-600',   bg: 'bg-slate-50 border-slate-200',     icon: '🌱' }
+  return                   { label: 'Newbie',    color: 'text-slate-400',   bg: 'bg-slate-50 border-slate-200',     icon: '🐣' }
 }
 
+// ─── Sub-components ───────────────────────────────────────────────────────────
 function ScoreBar({ value, max, color }) {
   const pct = max ? Math.min(100, Math.round((value / max) * 100)) : 0
   return (
     <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-      <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${pct}%` }} />
+      <div
+        className={`h-full rounded-full transition-all duration-700 ${color}`}
+        style={{ width: `${pct}%` }}
+      />
     </div>
   )
 }
 
-// Stacked bar: gained (hijau) vs penalty (merah)
 function StackedBar({ gained, penalty }) {
   const total = Math.max(gained + penalty, 1)
   const gPct  = Math.round((gained  / total) * 100)
@@ -76,24 +123,204 @@ function StackedBar({ gained, penalty }) {
   return (
     <div className="h-3 rounded-full bg-slate-100 overflow-hidden flex">
       <div className="h-full bg-emerald-500 transition-all duration-700 rounded-l-full" style={{ width: `${gPct}%` }} />
-      <div className="h-full bg-red-400 transition-all duration-700 rounded-r-full"    style={{ width: `${pPct}%` }} />
+      <div className="h-full bg-red-400  transition-all duration-700 rounded-r-full"    style={{ width: `${pPct}%` }} />
     </div>
   )
 }
 
+// ─── Daily Trend Chart ────────────────────────────────────────────────────────
+function DailyTrendChart({ activities, tasks }) {
+  const [trendDays, setTrendDays] = useState(7)
+  const canvasRef = useRef(null)
+  const chartRef  = useRef(null)
+
+  const trendData = useMemo(
+    () => buildDailyTrend(activities, tasks, trendDays),
+    [activities, tasks, trendDays]
+  )
+
+  const avg  = trendData.length
+    ? Math.round(trendData.reduce((s, d) => s + d.net, 0) / trendData.length)
+    : 0
+  const peak = trendData.length ? Math.max(...trendData.map(d => d.net)) : 0
+
+  useEffect(() => {
+    if (!canvasRef.current || !trendData.length) return
+
+    // destroy existing chart before re-creating
+    if (chartRef.current) {
+      chartRef.current.destroy()
+      chartRef.current = null
+    }
+
+    const ctx = canvasRef.current.getContext('2d')
+
+    chartRef.current = new ChartJS(ctx, {
+      type: 'bar',
+      data: {
+        labels: trendData.map(d => d.label),
+        datasets: [
+          {
+            label: 'Diperoleh',
+            data: trendData.map(d => d.gained),
+            backgroundColor: '#5DCAA5',
+            borderRadius: { topLeft: 3, topRight: 3 },
+            borderSkipped: 'bottom',
+            stack: 'stack',
+            order: 2,
+          },
+          {
+            label: 'Penalti',
+            data: trendData.map(d => -d.penalty),
+            backgroundColor: '#F09595',
+            borderRadius: { bottomLeft: 3, bottomRight: 3 },
+            borderSkipped: 'top',
+            stack: 'stack',
+            order: 2,
+          },
+          {
+            label: 'Net',
+            data: trendData.map(d => d.net),
+            type: 'line',
+            borderColor: '#2563eb',
+            backgroundColor: 'rgba(37,99,235,0.08)',
+            borderWidth: 2,
+            pointRadius: trendDays > 14 ? 2 : 3,
+            pointHoverRadius: 5,
+            pointBackgroundColor: '#2563eb',
+            tension: 0.35,
+            fill: false,
+            order: 1,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                if (ctx.dataset.label === 'Penalti')   return ` Penalti: −${Math.abs(ctx.parsed.y)}`
+                if (ctx.dataset.label === 'Diperoleh') return ` Diperoleh: +${ctx.parsed.y}`
+                return ` Net: ${ctx.parsed.y} pts`
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            stacked: true,
+            ticks: {
+              display: trendDays <= 14,
+              font: { size: 9 },
+              maxRotation: 45,
+              autoSkip: false,
+              color: '#94a3b8',
+            },
+            grid: { color: 'rgba(0,0,0,0.04)' },
+            border: { display: false },
+          },
+          y: {
+            stacked: true,
+            ticks: {
+              font: { size: 9 },
+              color: '#94a3b8',
+              callback: v => (v >= 0 ? v : ''),
+            },
+            grid: { color: 'rgba(0,0,0,0.04)' },
+            border: { display: false },
+          },
+        },
+      },
+    })
+
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.destroy()
+        chartRef.current = null
+      }
+    }
+  }, [trendData])
+
+  return (
+    <div>
+      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-2">
+        Tren Harian
+      </p>
+
+      {/* Slider rentang */}
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[10px] text-slate-400 flex-shrink-0">3h</span>
+        <input
+          type="range"
+          min={3}
+          max={30}
+          step={1}
+          value={trendDays}
+          onChange={e => setTrendDays(+e.target.value)}
+          className="flex-1 accent-brand-600"
+          aria-label="Rentang hari tren"
+        />
+        <span className="text-[10px] font-semibold text-slate-600 flex-shrink-0 w-14 text-right">
+          {trendDays} hari
+        </span>
+      </div>
+
+      {/* Legend */}
+      <div className="flex gap-3 mb-2 flex-wrap">
+        {[
+          { color: '#2563eb', label: 'Net score' },
+          { color: '#5DCAA5', label: 'Diperoleh' },
+          { color: '#F09595', label: 'Penalti'   },
+        ].map(l => (
+          <span key={l.label} className="flex items-center gap-1 text-[10px] text-slate-500">
+            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: l.color }} />
+            {l.label}
+          </span>
+        ))}
+      </div>
+
+      {/* Chart canvas */}
+      <div className="relative" style={{ height: 140 }}>
+        <canvas
+          ref={canvasRef}
+          role="img"
+          aria-label={`Tren skor harian ${trendDays} hari terakhir`}
+        />
+      </div>
+
+      {/* Summary */}
+      <div className="flex justify-between mt-2 text-[10px] text-slate-400">
+        <span>
+          Rata-rata:{' '}
+          <span className="font-semibold text-slate-600">{avg} pts/hari</span>
+        </span>
+        <span>
+          Puncak:{' '}
+          <span className="font-semibold text-slate-600">{peak} pts</span>
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// ─── Konstanta tab ────────────────────────────────────────────────────────────
 const PERIOD_TABS = [
-  { id: 'daily',   label: 'Today', icon: <Flame className="w-3.5 h-3.5" /> },
+  { id: 'daily',   label: 'Today', icon: <Flame     className="w-3.5 h-3.5" /> },
   { id: 'weekly',  label: 'Week',  icon: <TrendingUp className="w-3.5 h-3.5" /> },
-  { id: 'monthly', label: 'Month', icon: <Calendar className="w-3.5 h-3.5" /> },
+  { id: 'monthly', label: 'Month', icon: <Calendar  className="w-3.5 h-3.5" /> },
 ]
 
+// ─── Main Modal ───────────────────────────────────────────────────────────────
 export default function ScoreModal({ userId, tasks, onClose }) {
   const [activities, setActivities] = useState([])
   const [loading, setLoading]       = useState(true)
   const [period, setPeriod]         = useState('daily')
 
   useEffect(() => {
-    // ambil aktivitas 1 bulan ke belakang (cukup untuk semua period)
     const since = startOfMonth(new Date()).toISOString()
     supabase
       .from('task_activities')
@@ -101,15 +328,18 @@ export default function ScoreModal({ userId, tasks, onClose }) {
       .eq('user_id', userId)
       .gte('created_at', since)
       .order('created_at', { ascending: false })
-      .then(({ data }) => { setActivities(data || []); setLoading(false) })
+      .then(({ data }) => {
+        setActivities(data || [])
+        setLoading(false)
+      })
   }, [userId])
 
   const now = new Date()
-  const periodStart = {
+  const periodStart = useMemo(() => ({
     daily:   startOfDay(now),
     weekly:  startOfWeek(now, { weekStartsOn: 1 }),
     monthly: startOfMonth(now),
-  }[period]
+  }[period]), [period])
 
   const result   = useMemo(
     () => calcScore(activities, tasks, periodStart, now),
@@ -118,28 +348,31 @@ export default function ScoreModal({ userId, tasks, onClose }) {
   const rank     = getRank(result.net)
   const maxScore = { daily: 30, weekly: 150, monthly: 500 }[period]
 
-  // recent activity events
-  const sinceMs      = periodStart.getTime()
-  const recent       = activities.filter(a => new Date(a.created_at).getTime() >= sinceMs)
-  const doneTasks    = recent.filter(a => a.action === 'moved' && a.meta?.to === 'Done').length
-  const noteCount    = recent.filter(a => a.action === 'note').length
-  const moveCount    = recent.filter(a => a.action === 'moved').length
+  // recent activity
+  const sinceMs   = periodStart.getTime()
+  const recent    = activities.filter(a => new Date(a.created_at).getTime() >= sinceMs)
+  const doneTasks = recent.filter(a => a.action === 'moved' && a.meta?.to === 'Done').length
+  const moveCount = recent.filter(a => a.action === 'moved').length
 
   function eventDesc(a) {
     const task  = tasks.find(t => t.id === a.task_id)
-    const title = task?.title ? `"${task.title.slice(0, 26)}${task.title.length > 26 ? '…' : ''}"` : 'task'
-    const mul   = PRIORITY_MUL[task?.priority ?? 'medium']
-    if (a.action === 'moved' && a.meta?.to === 'Done') return { text: `✅ Selesai ${title}`, pts: `+${DONE_BONUS * mul}` }
-    if (a.action === 'moved')   return { text: `↪ Pindah ${title}`,  pts: `+${ACTION_PTS.moved * mul}`    }
-    if (a.action === 'created') return { text: `✏️ Buat ${title}`,   pts: `+${ACTION_PTS.created * mul}`  }
-    if (a.action === 'note')    return { text: `💬 Update ${title}`, pts: `+${ACTION_PTS.note * mul}`     }
-    if (a.action === 'updated') return { text: `🔧 Edit ${title}`,   pts: `+${ACTION_PTS.updated * mul}`  }
+    const title = task?.title
+      ? `"${task.title.slice(0, 26)}${task.title.length > 26 ? '…' : ''}"`
+      : 'task'
+    const mul = PRIORITY_MUL[task?.priority ?? 'medium']
+    if (a.action === 'moved' && a.meta?.to === 'Done') return { text: `✅ Selesai ${title}`,  pts: `+${DONE_BONUS * mul}`          }
+    if (a.action === 'moved')                          return { text: `↪ Pindah ${title}`,    pts: `+${ACTION_PTS.moved * mul}`   }
+    if (a.action === 'created')                        return { text: `✏️ Buat ${title}`,     pts: `+${ACTION_PTS.created * mul}` }
+    if (a.action === 'note')                           return { text: `💬 Update ${title}`,   pts: `+${ACTION_PTS.note * mul}`    }
+    if (a.action === 'updated')                        return { text: `🔧 Edit ${title}`,     pts: `+${ACTION_PTS.updated * mul}` }
     return { text: a.action, pts: '+0' }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-brand-950/60 backdrop-blur-sm animate-fade-in"
-      onClick={e => e.target === e.currentTarget && onClose()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-brand-950/60 backdrop-blur-sm animate-fade-in"
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-100 animate-scale-in max-h-[90dvh] flex flex-col">
 
         {/* Header */}
@@ -158,17 +391,21 @@ export default function ScoreModal({ userId, tasks, onClose }) {
         {/* Period tabs */}
         <div className="flex gap-1 px-5 pt-4 pb-0">
           {PERIOD_TABS.map(t => (
-            <button key={t.id} onClick={() => setPeriod(t.id)}
+            <button
+              key={t.id}
+              onClick={() => setPeriod(t.id)}
               className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-xl border transition-all duration-150 ${
                 period === t.id
                   ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
                   : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-brand-200 hover:text-brand-600'
-              }`}>
+              }`}
+            >
               {t.icon}{t.label}
             </button>
           ))}
         </div>
 
+        {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {loading ? (
             <div className="flex justify-center py-8">
@@ -178,7 +415,9 @@ export default function ScoreModal({ userId, tasks, onClose }) {
             <>
               {/* Score hero */}
               <div className="text-center py-2">
-                <div className="text-5xl font-display font-bold text-slate-800 tabular-nums">{result.net}</div>
+                <div className="text-5xl font-display font-bold text-slate-800 tabular-nums">
+                  {result.net}
+                </div>
                 <div className="text-sm text-slate-400 mt-0.5">net points</div>
                 <div className={`inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full border text-xs font-semibold ${rank.bg} ${rank.color}`}>
                   <span>{rank.icon}</span>{rank.label}
@@ -210,9 +449,9 @@ export default function ScoreModal({ userId, tasks, onClose }) {
               {/* Stats grid */}
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { icon: <Target className="w-3.5 h-3.5 text-emerald-600" />,       val: doneTasks,           label: 'Done',    bg: 'bg-emerald-50' },
-                  { icon: <Zap className="w-3.5 h-3.5 text-brand-600" />,            val: moveCount,           label: 'Moves',   bg: 'bg-brand-50'   },
-                  { icon: <TrendingDown className="w-3.5 h-3.5 text-red-500" />,     val: result.overdueCount, label: 'Overdue', bg: 'bg-red-50'     },
+                  { icon: <Target     className="w-3.5 h-3.5 text-emerald-600" />, val: doneTasks,           label: 'Done',    bg: 'bg-emerald-50' },
+                  { icon: <Zap        className="w-3.5 h-3.5 text-brand-600"   />, val: moveCount,           label: 'Moves',   bg: 'bg-brand-50'   },
+                  { icon: <TrendingDown className="w-3.5 h-3.5 text-red-500"   />, val: result.overdueCount, label: 'Overdue', bg: 'bg-red-50'     },
                 ].map(s => (
                   <div key={s.label} className={`rounded-xl ${s.bg} p-3 text-center`}>
                     <div className="flex justify-center mb-1">{s.icon}</div>
@@ -222,10 +461,17 @@ export default function ScoreModal({ userId, tasks, onClose }) {
                 ))}
               </div>
 
-              {/* Penalty breakdown — tampil kalau ada penalti */}
+              {/* ── Daily Trend Chart ── */}
+              <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                <DailyTrendChart activities={activities} tasks={tasks} />
+              </div>
+
+              {/* Penalty breakdown */}
               {result.penalty > 0 && (
                 <div className="rounded-xl bg-red-50 border border-red-200 p-3 space-y-1.5">
-                  <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wide mb-2">⚠️ Penalti Aktif</p>
+                  <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wide mb-2">
+                    ⚠️ Penalti Aktif
+                  </p>
                   {result.idleDays > 0 && (
                     <div className="flex justify-between text-xs">
                       <span className="text-red-700">{result.idleDays} hari tanpa aktivitas</span>
@@ -246,10 +492,10 @@ export default function ScoreModal({ userId, tasks, onClose }) {
                 <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Sistem Poin</p>
                 <p className="text-[10px] font-semibold text-emerald-600 mb-1">Penambah:</p>
                 {[
-                  { label: 'Task selesai (Done)',  pts: '+5 × priority' },
-                  { label: 'Pindah kolom',         pts: '+2 × priority' },
-                  { label: 'Buat task',            pts: '+1 × priority' },
-                  { label: 'Note / update',        pts: '+1 × priority' },
+                  { label: 'Task selesai (Done)',  pts: '+5 × priority'       },
+                  { label: 'Pindah kolom',         pts: '+2 × priority'       },
+                  { label: 'Buat task',            pts: '+1 × priority'       },
+                  { label: 'Note / update',        pts: '+1 × priority'       },
                   { label: 'Multiplier priority',  pts: 'High×3 Med×2 Low×1' },
                 ].map(r => (
                   <div key={r.label} className="flex justify-between text-xs">
@@ -260,8 +506,8 @@ export default function ScoreModal({ userId, tasks, onClose }) {
                 <div className="border-t border-slate-200 my-1.5" />
                 <p className="text-[10px] font-semibold text-red-500 mb-1">Pengurang:</p>
                 {[
-                  { label: 'Hari tanpa aktivitas', pts: '−1 / hari' },
-                  { label: 'Task overdue',         pts: '−2 / task' },
+                  { label: 'Hari tanpa aktivitas', pts: '−1 / hari'            },
+                  { label: 'Task overdue',         pts: '−2 / task'            },
                   { label: 'Minimum skor',         pts: '0 (tidak bisa minus)' },
                 ].map(r => (
                   <div key={r.label} className="flex justify-between text-xs">
@@ -272,9 +518,11 @@ export default function ScoreModal({ userId, tasks, onClose }) {
               </div>
 
               {/* Recent events */}
-              {recent.length > 0 && (
+              {recent.length > 0 ? (
                 <div>
-                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Aktivitas Terbaru</p>
+                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                    Aktivitas Terbaru
+                  </p>
                   <div className="space-y-1.5">
                     {recent.slice(0, 5).map(a => {
                       const ev = eventDesc(a)
@@ -287,13 +535,12 @@ export default function ScoreModal({ userId, tasks, onClose }) {
                     })}
                   </div>
                 </div>
-              )}
-
-              {recent.length === 0 && (
+              ) : (
                 <div className="text-center py-4">
                   <p className="text-2xl mb-2">🌱</p>
                   <p className="text-sm text-slate-500">
-                    Belum ada aktivitas {period === 'daily' ? 'hari ini' : period === 'weekly' ? 'minggu ini' : 'bulan ini'}.
+                    Belum ada aktivitas{' '}
+                    {period === 'daily' ? 'hari ini' : period === 'weekly' ? 'minggu ini' : 'bulan ini'}.
                   </p>
                   <p className="text-xs text-slate-400 mt-1">Mulai bergerak sebelum poin berkurang!</p>
                 </div>
