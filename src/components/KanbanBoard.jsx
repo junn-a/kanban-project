@@ -4,22 +4,17 @@ import {
   closestCorners,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { Layers, LogOut, Plus, Search, X, Trophy, CalendarDays, BarChart2, Bell, Folder, Users, Sparkles } from 'lucide-react'
+import { Layers, LogOut, Plus, Search, X, Trophy, CalendarDays, BarChart2, Sparkles } from 'lucide-react'
 
-import KanbanColumn          from './KanbanColumn'
-import TaskCard               from './TaskCard'
-import TaskModal              from './TaskModal'
-import MoveReasonModal        from './MoveReasonModal'
-import ScoreModal             from './ScoreModal'
-import CalendarModal          from './CalendarModal'
-import ReportModal            from './ReportModal'
-import NotificationDropdown   from './NotificationDropdown'
-import ProjectSelectorModal   from './ProjectSelectorModal'
-import ProjectMemberModal     from './ProjectMemberModal'
-import AIStrategyPanel        from './AIStrategyPanel'
-import { useTasks }           from '../hooks/useTasks'
-import { useProjects, useMembers } from '../hooks/useProjects'
-import { useNotifications }   from '../hooks/useNotifications'
+import KanbanColumn    from './KanbanColumn'
+import TaskCard        from './TaskCard'
+import TaskModal       from './TaskModal'
+import MoveReasonModal from './MoveReasonModal'
+import ScoreModal      from './ScoreModal'
+import CalendarModal   from './CalendarModal'
+import ReportModal     from './ReportModal'
+import AIStrategyPanel from './AIStrategyPanel'
+import { useTasks }    from '../hooks/useTasks'
 
 const STATUSES        = ['todo', 'inprogress', 'waiting', 'done']
 const PRIORITY_FILTER = ['all', 'high', 'medium', 'low']
@@ -35,16 +30,10 @@ export default function KanbanBoard({ user, onSignOut }) {
   const [calendarOpen, setCalendarOpen]     = useState(false)
   const [reportOpen, setReportOpen]         = useState(false)
   const [pendingMove, setPendingMove]       = useState(null)
-  const [projectOpen, setProjectOpen]       = useState(false)
-  const [memberProject, setMemberProject]   = useState(null)
-  const [notifOpen, setNotifOpen]           = useState(false)
   const [aiPanelOpen, setAiPanelOpen]       = useState(false)
-  const [currentProject, setCurrentProject] = useState(null)
   const dragOriginStatus                    = useRef(null)
 
-  const { projects, createProject, deleteProject } = useProjects(user.id)
-  const { members }                                 = useMembers(currentProject?.id)
-  const { notifications, unreadCount, markAllRead, markRead } = useNotifications(user.id)
+  const members = []
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -180,16 +169,6 @@ export default function KanbanBoard({ user, onSignOut }) {
             <span className="font-display font-semibold text-slate-800 text-base hidden sm:block">Taskflow</span>
           </div>
 
-          {/* Project selector pill */}
-          <button onClick={() => setProjectOpen(true)}
-            className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 hover:bg-slate-200 transition flex-shrink-0 max-w-[160px]">
-            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: currentProject?.color || '#94a3b8' }} />
-            <span className="text-xs font-medium text-slate-600 truncate">
-              {currentProject ? currentProject.name : 'Personal'}
-            </span>
-            <Folder className="w-3 h-3 text-slate-400 flex-shrink-0" />
-          </button>
-
           {/* Progress pill — desktop only */}
           <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 flex-shrink-0">
             <div className="w-20 h-1.5 rounded-full bg-slate-200 overflow-hidden">
@@ -223,31 +202,6 @@ export default function KanbanBoard({ user, onSignOut }) {
                   {p === 'all' ? 'All' : p}
                 </button>
               ))}
-            </div>
-
-            {/* Notification bell */}
-            <div className="relative">
-              <button
-                onClick={() => setNotifOpen(o => !o)}
-                className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 transition relative"
-                title="Notifikasi"
-              >
-                <Bell className="w-4 h-4" />
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </span>
-                )}
-              </button>
-              {notifOpen && (
-                <NotificationDropdown
-                  notifications={notifications}
-                  unreadCount={unreadCount}
-                  onMarkAllRead={markAllRead}
-                  onMarkRead={markRead}
-                  onClose={() => setNotifOpen(false)}
-                />
-              )}
             </div>
 
             {/* AI Strategy */}
@@ -407,26 +361,7 @@ export default function KanbanBoard({ user, onSignOut }) {
           onClose={() => setReportOpen(false)}
         />
       )}
-      {projectOpen && (
-        <ProjectSelectorModal
-          projects={projects}
-          currentProjectId={currentProject?.id}
-          userId={user.id}
-          onSelect={setCurrentProject}
-          onCreateProject={createProject}
-          onDeleteProject={deleteProject}
-          onManageMembers={(p) => setMemberProject(p)}
-          onClose={() => setProjectOpen(false)}
-        />
-      )}
 
-      {memberProject && (
-        <ProjectMemberModal
-          project={memberProject}
-          userId={user.id}
-          onClose={() => setMemberProject(null)}
-        />
-      )}
       {/* AI Strategy Panel */}
       {aiPanelOpen && (
         <AIStrategyPanel
