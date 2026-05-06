@@ -4,7 +4,7 @@ import {
   closestCorners,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { Layers, LogOut, Plus, Search, X, Trophy, CalendarDays, BarChart2, Sparkles } from 'lucide-react'
+import { Layers, LogOut, Plus, Search, X, Trophy, CalendarDays, BarChart2 } from 'lucide-react'
 
 import KanbanColumn    from './KanbanColumn'
 import TaskCard        from './TaskCard'
@@ -13,14 +13,14 @@ import MoveReasonModal from './MoveReasonModal'
 import ScoreModal      from './ScoreModal'
 import CalendarModal   from './CalendarModal'
 import ReportModal     from './ReportModal'
-import AIStrategyPanel from './AIStrategyPanel'
+import AIStrategyPanel from './AIStrategyPanel'   // ← NEW
 import { useTasks }    from '../hooks/useTasks'
 
-const STATUSES        = ['todo', 'inprogress', 'waiting', 'done']
+const STATUSES        = ['todo', 'inprogress', 'done']
 const PRIORITY_FILTER = ['all', 'high', 'medium', 'low']
 
 export default function KanbanBoard({ user, onSignOut }) {
-  const { tasks, loading, addTask, updateTask, deleteTask, moveTask, moveTaskWithReason, addNote } = useTasks(user.id, currentProject?.id)
+  const { tasks, loading, addTask, updateTask, deleteTask, moveTask, moveTaskWithReason, addNote } = useTasks(user.id)
 
   const [modal, setModal]                   = useState(null)
   const [activeId, setActiveId]             = useState(null)
@@ -30,10 +30,7 @@ export default function KanbanBoard({ user, onSignOut }) {
   const [calendarOpen, setCalendarOpen]     = useState(false)
   const [reportOpen, setReportOpen]         = useState(false)
   const [pendingMove, setPendingMove]       = useState(null)
-  const [aiPanelOpen, setAiPanelOpen]       = useState(false)
   const dragOriginStatus                    = useRef(null)
-
-  const members = []
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -51,18 +48,7 @@ export default function KanbanBoard({ user, onSignOut }) {
     return t
   }, [tasks, search, filterPriority])
 
-  const byStatus = (s) => {
-    const col = filtered.filter(t => t.status === s)
-    if (s === 'inprogress' || s === 'waiting') {
-      return col.sort((a, b) => {
-        if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date)
-        if (a.due_date && !b.due_date) return -1
-        if (!a.due_date && b.due_date) return 1
-        return a.position - b.position
-      })
-    }
-    return col.sort((a, b) => a.position - b.position)
-  }
+  const byStatus   = (s) => filtered.filter(t => t.status === s).sort((a, b) => a.position - b.position)
   const activeTask = activeId ? tasks.find(t => t.id === activeId) : null
 
   const total    = tasks.length
@@ -204,15 +190,6 @@ export default function KanbanBoard({ user, onSignOut }) {
               ))}
             </div>
 
-            {/* AI Strategy */}
-            <button
-              onClick={() => setAiPanelOpen(true)}
-              className="w-8 h-8 flex items-center justify-center rounded-xl bg-gradient-to-br from-brand-50 to-violet-50 border border-brand-200 text-brand-600 hover:from-brand-100 hover:to-violet-100 transition"
-              title="AI Daily Strategy"
-            >
-              <Sparkles className="w-4 h-4" />
-            </button>
-
             {/* Calendar */}
             <button
               onClick={() => setCalendarOpen(true)}
@@ -276,8 +253,11 @@ export default function KanbanBoard({ user, onSignOut }) {
             {/*
               Mobile  : flex-col, full-width stacked columns
               sm+     : flex-row, side-by-side columns with horizontal scroll
+              AI panel: kolom ke-5 setelah "Done", terpisah dari DnD area
             */}
             <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:overflow-x-auto pb-4 items-stretch sm:items-start">
+
+              {/* ── Kanban columns (DnD) ── */}
               {STATUSES.map(s => (
                 <KanbanColumn
                   key={s}
@@ -288,6 +268,13 @@ export default function KanbanBoard({ user, onSignOut }) {
                   onAddNote={addNote}
                 />
               ))}
+
+              {/* ── Divider (desktop) ── */}
+              <div className="hidden sm:block w-px bg-slate-200/70 self-stretch flex-shrink-0 mx-1" />
+
+              {/* ── AI Strategy Panel (5th column) ── */}
+              <AIStrategyPanel tasks={tasks} />
+
             </div>
 
             <DragOverlay dropAnimation={{ duration: 180, easing: 'ease' }}>
@@ -324,8 +311,6 @@ export default function KanbanBoard({ user, onSignOut }) {
           onDelete={modal.mode === 'edit' ? handleDelete : undefined}
           onClose={closeModal}
           onAddNote={modal.mode === 'edit' ? addNote : undefined}
-          members={members}
-          userId={user.id}
         />
       )}
 
@@ -359,14 +344,6 @@ export default function KanbanBoard({ user, onSignOut }) {
           userId={user.id}
           tasks={tasks}
           onClose={() => setReportOpen(false)}
-        />
-      )}
-
-      {/* AI Strategy Panel */}
-      {aiPanelOpen && (
-        <AIStrategyPanel
-          tasks={tasks}
-          onClose={() => setAiPanelOpen(false)}
         />
       )}
     </div>
