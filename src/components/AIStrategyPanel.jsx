@@ -32,34 +32,42 @@ function buildMessages(tasks) {
   return [
     {
       role: 'system',
-      content: `Kamu adalah analis produktivitas kanban yang berpengalaman. 
-Tugasmu menganalisis data kanban board dan memberikan insight yang actionable.
-Selalu balas HANYA dengan JSON valid, tanpa markdown, tanpa penjelasan tambahan, tanpa backtick.`,
+      content: `Anda adalah Ahli Strategi Produktivitas Senior. Tugas Anda adalah melakukan audit mendalam terhadap Kanban Board user.
+Analisis pola kerja mereka, identifikasi risiko manajemen waktu, dan berikan saran teknis yang spesifik.
+Gunakan nada bicara yang profesional, suportif, namun tegas dalam hal efisiensi.
+Selalu balas HANYA dalam format JSON valid bahasa Indonesia.`
     },
     {
       role: 'user',
-      content: `Analisis kanban board berikut:
+      content: `Lakukan audit mendalam terhadap data ini:
 
-RINGKASAN:
-- Total task: ${s.total}
-- To Do: ${s.todo} | In Progress: ${s.inprogress} | Waiting/Blocked: ${s.waiting} | Done: ${s.done}
-- High priority: ${s.high} | Overdue: ${s.overdue}
+STATISTIK:
+- Total: ${s.total} | Done: ${s.done}
+- High Priority: ${s.high} | Overdue: ${s.overdue}
+- Distribusi: Todo(${s.todo}), In Progress(${s.inprogress}), Waiting(${s.waiting})
 
-DAFTAR TASK:
+DAFTAR PEKERJAAN:
 ${list}
 
-Balas dengan JSON persis seperti struktur ini:
+INSTRUKSI ANALISA:
+1. Hitung Score Kesehatan (0-100) berdasarkan rasio task selesai vs overdue.
+2. Identifikasi "Bottleneck": Apakah terlalu banyak task di 'In Progress'? Apakah banyak task tertahan di 'Waiting'?
+3. Quick Wins: Cari task prioritas rendah yang bisa diselesaikan cepat (< 15 menit).
+4. Rekomendasi: Berikan saran spesifik per kategori (Manajemen Waktu, Delegasi, atau Fokus).
+5. Fokus Utama: Tentukan 1 task paling kritis yang jika selesai akan memberikan dampak terbesar.
+
+Balas dengan struktur JSON:
 {
-  "health_score": <angka 0-100>,
+  "health_score": <number>,
   "health_label": "<Kritis|Perlu Perhatian|Cukup Baik|Baik|Sangat Baik>",
-  "summary": "<1-2 kalimat ringkasan kondisi board dalam bahasa Indonesia>",
-  "bottlenecks": ["<masalah 1>", "<masalah 2>"],
-  "quick_wins": ["<saran cepat 1>", "<saran cepat 2>"],
+  "summary": "<Analisis tren produktivitas user dalam 2 kalimat>",
+  "bottlenecks": ["<Masalah spesifik dengan nama task jika perlu>"],
+  "quick_wins": ["<Saran tindakan instan>"],
   "recommendations": [
-    {"title": "<judul saran>", "detail": "<penjelasan singkat>", "priority": "<high|medium|low>"}
+    {"title": "<Judul>", "detail": "<Saran mendalam>", "priority": "<high|medium|low>"}
   ],
-  "focus_task": "<judul task paling mendesak>",
-  "focus_reason": "<alasan singkat dalam bahasa Indonesia>"
+  "focus_task": "<Judul Task>",
+  "focus_reason": "<Alasan strategis mengapa ini harus nomor satu>"
 }`,
     },
   ]
