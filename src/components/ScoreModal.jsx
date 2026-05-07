@@ -6,18 +6,6 @@ import {
   subDays, differenceInDays, format, parseISO, isValid,
   endOfDay
 } from 'date-fns'
-import {
-  Chart as ChartJS,
-  CategoryScale, LinearScale,
-  BarElement, LineElement, PointElement,
-  Tooltip, Filler
-} from 'chart.js'
-
-ChartJS.register(
-  CategoryScale, LinearScale,
-  BarElement, LineElement, PointElement,
-  Tooltip, Filler
-)
 
 // ─── Konstanta poin ───────────────────────────────────────────────────────────
 const PRIORITY_MUL = { high: 3, medium: 2, low: 1 }
@@ -34,7 +22,7 @@ const QUICK_RANGES = [
   { id: '90d', label: '3 Bulan', days: 90 },
 ]
 
-// ─── Hitung skor dengan penalti ───────────────────────────────────────────────
+// ─── Hitung skor ──────────────────────────────────────────────────────────────
 function calcScore(activities, tasks, since, now) {
   let gained  = 0
   let penalty = 0
@@ -56,26 +44,21 @@ function calcScore(activities, tasks, since, now) {
   const totalDays  = Math.max(1, differenceInDays(new Date(nowMs), new Date(sinceMs)) + 1)
   const activeDays = new Set(
     activities
-      .filter(a => {
-        const ts = new Date(a.created_at).getTime()
-        return ts >= sinceMs && ts < nowMs
-      })
+      .filter(a => { const ts = new Date(a.created_at).getTime(); return ts >= sinceMs && ts < nowMs })
       .map(a => format(new Date(a.created_at), 'yyyy-MM-dd'))
   ).size
   const idleDays = Math.max(0, totalDays - activeDays)
   penalty += idleDays * IDLE_PENALTY
 
   const today = format(new Date(), 'yyyy-MM-dd')
-  const overdueTasks = tasks.filter(
-    t => t.status !== 'done' && t.due_date && t.due_date < today
-  )
+  const overdueTasks = tasks.filter(t => t.status !== 'done' && t.due_date && t.due_date < today)
   penalty += overdueTasks.length * OVERDUE_PEN
 
   const net = Math.max(0, gained - penalty)
   return { gained, penalty, idleDays, overdueCount: overdueTasks.length, net, activeDays, totalDays }
 }
 
-// ─── Build data tren harian (dari startDate ke endDate) ──────────────────────
+// ─── Build data tren harian ───────────────────────────────────────────────────
 function buildDailyTrend(activities, tasks, startDate, endDate) {
   const result = []
   const start  = startOfDay(startDate)
@@ -85,27 +68,22 @@ function buildDailyTrend(activities, tasks, startDate, endDate) {
   for (let i = 0; i < days; i++) {
     const dayStart = startOfDay(new Date(start.getTime() + i * 86_400_000))
     const dayEnd   = new Date(dayStart.getTime() + 86_400_000)
-
-    const dayActs = activities.filter(a => {
+    const dayActs  = activities.filter(a => {
       const ts = new Date(a.created_at).getTime()
       return ts >= dayStart.getTime() && ts < dayEnd.getTime()
     })
-
     const { gained, penalty, net } = calcScore(dayActs, tasks, dayStart, dayEnd)
-
     result.push({
-      label: format(dayStart, days <= 14 ? 'EEE d/M' : 'd/M'),
+      label:     format(dayStart, days <= 14 ? 'EEE d/M' : 'd/M'),
       fullLabel: format(dayStart, 'EEEE, d MMMM yyyy'),
-      gained,
-      penalty,
-      net,
+      gained, penalty, net,
       idle: dayActs.length === 0,
     })
   }
   return result
 }
 
-// ─── Rank berdasarkan skor nett ───────────────────────────────────────────────
+// ─── Rank ─────────────────────────────────────────────────────────────────────
 function getRank(score) {
   if (score >= 200) return { label: 'Legendary', color: 'text-yellow-500',  bg: 'bg-yellow-50 border-yellow-200',   icon: '👑' }
   if (score >= 100) return { label: 'Elite',     color: 'text-purple-600',  bg: 'bg-purple-50 border-purple-200',   icon: '💎' }
@@ -120,10 +98,7 @@ function ScoreBar({ value, max, color }) {
   const pct = max ? Math.min(100, Math.round((value / max) * 100)) : 0
   return (
     <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-      <div
-        className={`h-full rounded-full transition-all duration-700 ${color}`}
-        style={{ width: `${pct}%` }}
-      />
+      <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${pct}%` }} />
     </div>
   )
 }
@@ -142,13 +117,12 @@ function StackedBar({ gained, penalty }) {
 
 // ─── Custom Date Range Picker ─────────────────────────────────────────────────
 function DateRangePicker({ startDate, endDate, onRangeChange }) {
-  const [open, setOpen]       = useState(false)
+  const [open, setOpen]             = useState(false)
   const [localStart, setLocalStart] = useState(format(startDate, 'yyyy-MM-dd'))
-  const [localEnd, setLocalEnd]     = useState(format(endDate,   'yyyy-MM-dd'))
+  const [localEnd,   setLocalEnd]   = useState(format(endDate,   'yyyy-MM-dd'))
   const [activePreset, setActivePreset] = useState('7d')
   const ref = useRef(null)
 
-  // Close on outside click
   useEffect(() => {
     const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
     document.addEventListener('mousedown', handler)
@@ -160,8 +134,7 @@ function DateRangePicker({ startDate, endDate, onRangeChange }) {
     const start = subDays(end, preset.days - 1)
     const s = format(start, 'yyyy-MM-dd')
     const e = format(end,   'yyyy-MM-dd')
-    setLocalStart(s)
-    setLocalEnd(e)
+    setLocalStart(s); setLocalEnd(e)
     setActivePreset(preset.id)
     onRangeChange(startOfDay(start), endOfDay(end))
     setOpen(false)
@@ -171,8 +144,7 @@ function DateRangePicker({ startDate, endDate, onRangeChange }) {
     const s = parseISO(localStart)
     const e = parseISO(localEnd)
     if (!isValid(s) || !isValid(e) || s > e) return
-    const diffDays = differenceInDays(e, s)
-    if (diffDays > 365) return // max 1 year
+    if (differenceInDays(e, s) > 365) return
     setActivePreset(null)
     onRangeChange(startOfDay(s), endOfDay(e))
     setOpen(false)
@@ -195,7 +167,6 @@ function DateRangePicker({ startDate, endDate, onRangeChange }) {
 
       {open && (
         <div className="absolute right-0 top-full mt-1.5 z-50 w-64 bg-white rounded-xl border border-slate-200 shadow-xl p-3 space-y-3">
-          {/* Quick presets */}
           <div>
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Cepat</p>
             <div className="grid grid-cols-2 gap-1">
@@ -208,45 +179,31 @@ function DateRangePicker({ startDate, endDate, onRangeChange }) {
                       ? 'bg-brand-600 text-white border-brand-600'
                       : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-brand-300 hover:text-brand-600'
                   }`}
-                >
-                  {r.label}
-                </button>
+                >{r.label}</button>
               ))}
             </div>
           </div>
-
-          {/* Custom date inputs */}
           <div>
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Custom</p>
             <div className="space-y-1.5">
               <div>
                 <label className="text-[10px] text-slate-500 block mb-0.5">Dari</label>
-                <input
-                  type="date"
-                  value={localStart}
-                  max={localEnd}
+                <input type="date" value={localStart} max={localEnd}
                   onChange={e => { setLocalStart(e.target.value); setActivePreset(null) }}
                   className="w-full text-xs px-2 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 text-slate-700"
                 />
               </div>
               <div>
                 <label className="text-[10px] text-slate-500 block mb-0.5">Sampai</label>
-                <input
-                  type="date"
-                  value={localEnd}
-                  min={localStart}
-                  max={format(new Date(), 'yyyy-MM-dd')}
+                <input type="date" value={localEnd} min={localStart} max={format(new Date(), 'yyyy-MM-dd')}
                   onChange={e => { setLocalEnd(e.target.value); setActivePreset(null) }}
                   className="w-full text-xs px-2 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 text-slate-700"
                 />
               </div>
             </div>
-            <button
-              onClick={applyCustom}
+            <button onClick={applyCustom}
               className="mt-2 w-full py-1.5 text-xs font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-colors"
-            >
-              Terapkan
-            </button>
+            >Terapkan</button>
           </div>
         </div>
       )}
@@ -254,152 +211,215 @@ function DateRangePicker({ startDate, endDate, onRangeChange }) {
   )
 }
 
-// ─── Daily Trend Chart ────────────────────────────────────────────────────────
+// ─── Pure SVG Trend Chart (pengganti chart.js) ────────────────────────────────
+function TrendChart({ data }) {
+  const [tooltip, setTooltip] = useState(null) // { x, y, d }
+
+  if (!data.length) return null
+
+  const W = 500, H = 130, PADX = 8, PADY = 12
+  const innerW = W - PADX * 2
+  const innerH = H - PADY * 2
+
+  const maxGained  = Math.max(...data.map(d => d.gained), 1)
+  const minPenalty = Math.min(...data.map(d => -d.penalty), 0)
+  const maxNet     = Math.max(...data.map(d => d.net), 1)
+  const peak       = Math.max(...data.map(d => d.net))
+
+  // Bar dimensions
+  const barW    = Math.max(2, (innerW / data.length) - 2)
+  const barGap  = innerW / data.length
+  const zeroY   = PADY + innerH * (maxGained / (maxGained - minPenalty + 0.001))
+
+  // Net score line path
+  const linePoints = data.map((d, i) => {
+    const x = PADX + i * barGap + barGap / 2
+    const y = PADY + innerH - (d.net / (maxNet || 1)) * innerH
+    return { x, y, d }
+  })
+
+  const linePath = linePoints
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x},${p.y}`)
+    .join(' ')
+
+  // Area under line
+  const areaPath = linePoints.length > 0
+    ? `M ${linePoints[0].x},${PADY + innerH} ` +
+      linePoints.map(p => `L ${p.x},${p.y}`).join(' ') +
+      ` L ${linePoints[linePoints.length - 1].x},${PADY + innerH} Z`
+    : ''
+
+  // Show x-axis labels: show all if ≤14 days, else every Nth
+  const labelStep = data.length <= 14 ? 1 : data.length <= 30 ? 3 : 7
+
+  return (
+    <div className="relative select-none">
+      {/* Tooltip */}
+      {tooltip && (
+        <div
+          className="absolute z-20 pointer-events-none bg-slate-800 text-white text-[10px] rounded-lg px-2.5 py-1.5 shadow-xl whitespace-nowrap"
+          style={{
+            left: Math.min(tooltip.x, W - 120),
+            top: Math.max(0, tooltip.y - 60),
+            transform: 'translate(-50%, 0)',
+          }}
+        >
+          <p className="font-semibold mb-0.5 text-slate-200">{tooltip.d.fullLabel}</p>
+          <p className="text-emerald-400">+{tooltip.d.gained} diperoleh</p>
+          {tooltip.d.penalty > 0 && <p className="text-red-400">−{tooltip.d.penalty} penalti</p>}
+          <p className="font-bold text-white border-t border-slate-600 mt-0.5 pt-0.5">
+            Net: {tooltip.d.net} pts
+          </p>
+        </div>
+      )}
+
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full"
+        style={{ height: H }}
+        onMouseLeave={() => setTooltip(null)}
+      >
+        {/* Horizontal gridlines */}
+        {[0, 0.25, 0.5, 0.75, 1].map(t => {
+          const y = PADY + innerH * (1 - t)
+          return (
+            <line
+              key={t}
+              x1={PADX} x2={W - PADX} y1={y} y2={y}
+              stroke="#e2e8f0" strokeWidth="0.5" strokeDasharray={t === 0 ? '0' : '3 3'}
+            />
+          )
+        })}
+
+        {/* Stacked bars: gained (green) above zero, penalty (red) below */}
+        {data.map((d, i) => {
+          const cx       = PADX + i * barGap + barGap / 2
+          const x        = cx - barW / 2
+          const gainedH  = (d.gained  / (maxGained  || 1)) * (innerH * 0.6)
+          const penaltyH = (d.penalty / (-minPenalty || 1)) * (innerH * 0.4)
+          const gainY    = PADY + innerH - gainedH
+
+          return (
+            <g key={i}>
+              {/* Gained bar */}
+              <rect
+                x={x} y={gainY} width={barW} height={gainedH}
+                rx="2" ry="2"
+                fill={d.idle ? '#e2e8f0' : '#5DCAA5'}
+                fillOpacity={d.idle ? 0.6 : 0.85}
+              />
+              {/* Penalty bar (below baseline) */}
+              {d.penalty > 0 && (
+                <rect
+                  x={x} y={PADY + innerH} width={barW} height={penaltyH}
+                  rx="2" ry="2"
+                  fill="#F09595"
+                  fillOpacity="0.85"
+                />
+              )}
+              {/* Hover hit area */}
+              <rect
+                x={cx - barGap / 2} y={PADY} width={barGap} height={innerH}
+                fill="transparent"
+                onMouseEnter={e => {
+                  const svgRect = e.currentTarget.ownerSVGElement.getBoundingClientRect()
+                  const scaleX  = W / svgRect.width
+                  const mx      = (e.clientX - svgRect.left) * scaleX
+                  const my      = (e.clientY - svgRect.top)  * (H / svgRect.height)
+                  setTooltip({ x: mx, y: my, d })
+                }}
+              />
+            </g>
+          )
+        })}
+
+        {/* Area fill under net line */}
+        {linePoints.length > 1 && (
+          <path d={areaPath} fill="#2563eb" fillOpacity="0.07" />
+        )}
+
+        {/* Net score line */}
+        {linePoints.length > 1 && (
+          <polyline
+            points={linePoints.map(p => `${p.x},${p.y}`).join(' ')}
+            fill="none"
+            stroke="#2563eb"
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        )}
+
+        {/* Dots on net line */}
+        {linePoints.map((p, i) => {
+          const isBest = p.d.net === peak && peak > 0
+          return (
+            <circle
+              key={i}
+              cx={p.x} cy={p.y}
+              r={isBest ? 4.5 : data.length > 30 ? 1.5 : 3}
+              fill={isBest ? '#f59e0b' : '#2563eb'}
+              stroke="white"
+              strokeWidth={isBest ? 1.5 : 1}
+            />
+          )
+        })}
+
+        {/* X-axis baseline */}
+        <line
+          x1={PADX} x2={W - PADX}
+          y1={PADY + innerH} y2={PADY + innerH}
+          stroke="#cbd5e1" strokeWidth="1"
+        />
+
+        {/* X-axis labels */}
+        {data.map((d, i) => {
+          if (i % labelStep !== 0 && i !== data.length - 1) return null
+          const cx = PADX + i * barGap + barGap / 2
+          return (
+            <text key={i} x={cx} y={H - 1} textAnchor="middle"
+              fontSize="8" fill="#94a3b8">
+              {d.label}
+            </text>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
+// ─── Daily Trend Chart wrapper ────────────────────────────────────────────────
 function DailyTrendChart({ activities, tasks }) {
-  const today   = useMemo(() => new Date(), [])
-  const default7Start = useMemo(() => subDays(today, 6), [today])
+  const today          = useMemo(() => new Date(), [])
+  const default7Start  = useMemo(() => subDays(today, 6), [today])
 
   const [rangeStart, setRangeStart] = useState(startOfDay(default7Start))
   const [rangeEnd,   setRangeEnd]   = useState(endOfDay(today))
-
-  const canvasRef = useRef(null)
-  const chartRef  = useRef(null)
 
   const trendData = useMemo(
     () => buildDailyTrend(activities, tasks, rangeStart, rangeEnd),
     [activities, tasks, rangeStart, rangeEnd]
   )
 
-  const totalDays = trendData.length
-  const avg   = totalDays ? Math.round(trendData.reduce((s, d) => s + d.net, 0) / totalDays) : 0
-  const peak  = totalDays ? Math.max(...trendData.map(d => d.net)) : 0
-  const total = trendData.reduce((s, d) => s + d.net, 0)
+  const totalDays  = trendData.length
+  const avg        = totalDays ? Math.round(trendData.reduce((s, d) => s + d.net, 0) / totalDays) : 0
+  const peak       = totalDays ? Math.max(...trendData.map(d => d.net)) : 0
+  const total      = trendData.reduce((s, d) => s + d.net, 0)
   const activeDays = trendData.filter(d => !d.idle).length
-  const bestDay = trendData.find(d => d.net === peak)
-
-  function handleRangeChange(start, end) {
-    setRangeStart(start)
-    setRangeEnd(end)
-  }
-
-  useEffect(() => {
-    if (!canvasRef.current || !trendData.length) return
-
-    if (chartRef.current) {
-      chartRef.current.destroy()
-      chartRef.current = null
-    }
-
-    const ctx = canvasRef.current.getContext('2d')
-
-    chartRef.current = new ChartJS(ctx, {
-      type: 'bar',
-      data: {
-        labels: trendData.map(d => d.label),
-        datasets: [
-          {
-            label: 'Diperoleh',
-            data: trendData.map(d => d.gained),
-            backgroundColor: trendData.map(d => d.idle ? 'rgba(203,213,225,0.5)' : '#5DCAA5'),
-            borderRadius: { topLeft: 3, topRight: 3 },
-            borderSkipped: 'bottom',
-            stack: 'stack',
-            order: 2,
-          },
-          {
-            label: 'Penalti',
-            data: trendData.map(d => -d.penalty),
-            backgroundColor: '#F09595',
-            borderRadius: { bottomLeft: 3, bottomRight: 3 },
-            borderSkipped: 'top',
-            stack: 'stack',
-            order: 2,
-          },
-          {
-            label: 'Net',
-            data: trendData.map(d => d.net),
-            type: 'line',
-            borderColor: '#2563eb',
-            backgroundColor: 'rgba(37,99,235,0.08)',
-            borderWidth: 2,
-            pointBackgroundColor: trendData.map(d => d.net === peak && peak > 0 ? '#f59e0b' : '#2563eb'),
-            pointBorderColor:     trendData.map(d => d.net === peak && peak > 0 ? '#f59e0b' : '#2563eb'),
-            pointRadius:          trendData.map(d => d.net === peak && peak > 0 ? 5 : (totalDays > 30 ? 1.5 : 3)),
-            pointHoverRadius: 5,
-            tension: 0.35,
-            fill: false,
-            order: 1,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              title: ctx => trendData[ctx[0].dataIndex]?.fullLabel ?? ctx[0].label,
-              label: ctx => {
-                if (ctx.dataset.label === 'Penalti')   return ` Penalti: −${Math.abs(ctx.parsed.y)}`
-                if (ctx.dataset.label === 'Diperoleh') return ` Diperoleh: +${ctx.parsed.y}`
-                return ` Net: ${ctx.parsed.y} pts`
-              },
-            },
-          },
-        },
-        scales: {
-          x: {
-            stacked: true,
-            ticks: {
-              display: totalDays <= 21,
-              font: { size: 9 },
-              maxRotation: 45,
-              autoSkip: totalDays > 14,
-              maxTicksLimit: 14,
-              color: '#94a3b8',
-            },
-            grid: { color: 'rgba(0,0,0,0.04)' },
-            border: { display: false },
-          },
-          y: {
-            stacked: true,
-            ticks: {
-              font: { size: 9 },
-              color: '#94a3b8',
-              callback: v => (v >= 0 ? v : ''),
-            },
-            grid: { color: 'rgba(0,0,0,0.04)' },
-            border: { display: false },
-          },
-        },
-      },
-    })
-
-    return () => {
-      if (chartRef.current) {
-        chartRef.current.destroy()
-        chartRef.current = null
-      }
-    }
-  }, [trendData])
+  const bestDay    = trendData.find(d => d.net === peak)
 
   return (
     <div className="space-y-3">
-      {/* Header row */}
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
-          Tren Harian
-        </p>
+        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Tren Harian</p>
         <DateRangePicker
           startDate={rangeStart}
           endDate={rangeEnd}
-          onRangeChange={handleRangeChange}
+          onRangeChange={(s, e) => { setRangeStart(s); setRangeEnd(e) }}
         />
       </div>
 
-      {/* Range label */}
       <p className="text-[10px] text-slate-400">
         {format(rangeStart, 'd MMM yyyy')} – {format(rangeEnd, 'd MMM yyyy')}
         <span className="ml-1 text-slate-300">({totalDays} hari)</span>
@@ -408,42 +428,39 @@ function DailyTrendChart({ activities, tasks }) {
       {/* Legend */}
       <div className="flex gap-3 flex-wrap">
         {[
-          { color: '#2563eb', label: 'Net score' },
-          { color: '#f59e0b', label: 'Hari terbaik', dot: true },
-          { color: '#5DCAA5', label: 'Diperoleh'  },
-          { color: '#F09595', label: 'Penalti'    },
-          { color: 'rgba(203,213,225,0.5)', label: 'Idle', border: '#cbd5e1' },
+          { color: '#2563eb', label: 'Net score',    line: true  },
+          { color: '#f59e0b', label: 'Hari terbaik', dot: true   },
+          { color: '#5DCAA5', label: 'Diperoleh'                 },
+          { color: '#F09595', label: 'Penalti'                   },
+          { color: '#e2e8f0', label: 'Idle',          border: '#cbd5e1' },
         ].map(l => (
           <span key={l.label} className="flex items-center gap-1 text-[10px] text-slate-500">
-            <span
-              className={`w-2.5 h-2.5 flex-shrink-0 ${l.dot ? 'rounded-full' : 'rounded-sm'}`}
-              style={{ background: l.color, border: l.border ? `1px solid ${l.border}` : undefined }}
-            />
+            {l.line
+              ? <span className="w-4 h-0 border-t-2 flex-shrink-0" style={{ borderColor: l.color }} />
+              : <span className={`w-2.5 h-2.5 flex-shrink-0 ${l.dot ? 'rounded-full' : 'rounded-sm'}`}
+                  style={{ background: l.color, border: l.border ? `1px solid ${l.border}` : undefined }}
+                />
+            }
             {l.label}
           </span>
         ))}
       </div>
 
-      {/* Chart canvas */}
-      <div className="relative" style={{ height: 150 }}>
-        <canvas
-          ref={canvasRef}
-          role="img"
-          aria-label={`Tren skor harian ${totalDays} hari`}
-        />
-      </div>
+      {/* SVG Chart */}
+      <TrendChart data={trendData} />
 
       {/* Summary stats */}
       <div className="grid grid-cols-4 gap-1.5">
         {[
-          { label: 'Total',    val: total,      suffix: 'pts', color: 'text-brand-600'   },
-          { label: 'Rata-rata',val: avg,         suffix: 'pts/hr', color: 'text-slate-700' },
-          { label: 'Terbaik',  val: peak,        suffix: 'pts', color: 'text-amber-500'  },
-          { label: 'Aktif',    val: `${activeDays}/${totalDays}`, suffix: 'hr', color: 'text-emerald-600' },
+          { label: 'Total',     val: total,                        suffix: 'pts', color: 'text-brand-600'   },
+          { label: 'Rata-rata', val: avg,                          suffix: 'pts/hr', color: 'text-slate-700' },
+          { label: 'Terbaik',   val: peak,                         suffix: 'pts', color: 'text-amber-500'  },
+          { label: 'Aktif',     val: `${activeDays}/${totalDays}`, suffix: 'hr',  color: 'text-emerald-600' },
         ].map(s => (
           <div key={s.label} className="bg-white rounded-lg border border-slate-100 p-2 text-center">
             <div className={`text-sm font-bold tabular-nums ${s.color}`}>{s.val}</div>
             <div className="text-[9px] text-slate-400 leading-tight">{s.label}</div>
+            <div className="text-[9px] text-slate-300">{s.suffix}</div>
           </div>
         ))}
       </div>
@@ -475,7 +492,6 @@ export default function ScoreModal({ userId, tasks, onClose }) {
   const [period, setPeriod]         = useState('daily')
 
   useEffect(() => {
-    // Fetch 90 days of data to support up to 3-month trend view
     const since = subDays(new Date(), 90).toISOString()
     supabase
       .from('task_activities')
@@ -483,10 +499,7 @@ export default function ScoreModal({ userId, tasks, onClose }) {
       .eq('user_id', userId)
       .gte('created_at', since)
       .order('created_at', { ascending: false })
-      .then(({ data }) => {
-        setActivities(data || [])
-        setLoading(false)
-      })
+      .then(({ data }) => { setActivities(data || []); setLoading(false) })
   }, [userId])
 
   const now = new Date()
@@ -496,10 +509,7 @@ export default function ScoreModal({ userId, tasks, onClose }) {
     monthly: startOfMonth(now),
   }[period]), [period])
 
-  const result   = useMemo(
-    () => calcScore(activities, tasks, periodStart, now),
-    [activities, tasks, period]
-  )
+  const result   = useMemo(() => calcScore(activities, tasks, periodStart, now), [activities, tasks, period])
   const rank     = getRank(result.net)
   const maxScore = { daily: 30, weekly: 150, monthly: 500 }[period]
 
@@ -569,9 +579,7 @@ export default function ScoreModal({ userId, tasks, onClose }) {
             <>
               {/* Score hero */}
               <div className="text-center py-2">
-                <div className="text-5xl font-display font-bold text-slate-800 tabular-nums">
-                  {result.net}
-                </div>
+                <div className="text-5xl font-display font-bold text-slate-800 tabular-nums">{result.net}</div>
                 <div className="text-sm text-slate-400 mt-0.5">net points</div>
                 <div className={`inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full border text-xs font-semibold ${rank.bg} ${rank.color}`}>
                   <span>{rank.icon}</span>{rank.label}
@@ -615,7 +623,7 @@ export default function ScoreModal({ userId, tasks, onClose }) {
                 ))}
               </div>
 
-              {/* ── Daily Trend Chart dengan Custom Date Range ── */}
+              {/* ── Daily Trend Chart (pure SVG, no chart.js) ── */}
               <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
                 <DailyTrendChart activities={activities} tasks={tasks} />
               </div>
@@ -623,9 +631,7 @@ export default function ScoreModal({ userId, tasks, onClose }) {
               {/* Penalty breakdown */}
               {result.penalty > 0 && (
                 <div className="rounded-xl bg-red-50 border border-red-200 p-3 space-y-1.5">
-                  <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wide mb-2">
-                    ⚠️ Penalti Aktif
-                  </p>
+                  <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wide mb-2">⚠️ Penalti Aktif</p>
                   {result.idleDays > 0 && (
                     <div className="flex justify-between text-xs">
                       <span className="text-red-700">{result.idleDays} hari tanpa aktivitas</span>
@@ -674,9 +680,7 @@ export default function ScoreModal({ userId, tasks, onClose }) {
               {/* Recent events */}
               {recent.length > 0 ? (
                 <div>
-                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                    Aktivitas Terbaru
-                  </p>
+                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Aktivitas Terbaru</p>
                   <div className="space-y-1.5">
                     {recent.slice(0, 5).map(a => {
                       const ev = eventDesc(a)
