@@ -4,7 +4,7 @@ import {
   closestCorners,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { Layers, LogOut, Plus, Search, X, Trophy, CalendarDays, BarChart2, Bell, Folder, Sparkles } from 'lucide-react'
+import { Layers, LogOut, Plus, Search, X, Trophy, CalendarDays, BarChart2, Bell, Folder, Sparkles, TrendingUp } from 'lucide-react'
 
 import KanbanColumn        from './KanbanColumn'
 import TaskCard            from './TaskCard'
@@ -13,6 +13,7 @@ import MoveReasonModal     from './MoveReasonModal'
 import ScoreModal          from './ScoreModal'
 import CalendarModal       from './CalendarModal'
 import ReportModal         from './ReportModal'
+import TrendModal          from './TrendModal'
 import NotificationDropdown from './NotificationDropdown'
 import ProjectSelectorModal from './ProjectSelectorModal'
 import ProjectMemberModal   from './ProjectMemberModal'
@@ -38,6 +39,7 @@ export default function KanbanBoard({ user, onSignOut }) {
   const [scoreOpen, setScoreOpen]         = useState(false)
   const [calendarOpen, setCalendarOpen]   = useState(false)
   const [reportOpen, setReportOpen]       = useState(false)
+  const [trendOpen, setTrendOpen]         = useState(false)
   const [pendingMove, setPendingMove]     = useState(null)
   const [projectOpen, setProjectOpen]     = useState(false)
   const [memberProject, setMemberProject] = useState(null)
@@ -282,6 +284,15 @@ export default function KanbanBoard({ user, onSignOut }) {
               <BarChart2 className="w-4 h-4" />
             </button>
 
+            {/* Trend Score */}
+            <button
+              onClick={() => setTrendOpen(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-xl bg-brand-50 border border-brand-200 text-brand-600 hover:bg-brand-100 transition"
+              title="Tren Skor Harian"
+            >
+              <TrendingUp className="w-4 h-4" />
+            </button>
+
             {/* Trophy */}
             <button
               onClick={() => setScoreOpen(true)}
@@ -392,6 +403,10 @@ export default function KanbanBoard({ user, onSignOut }) {
 
       {reportOpen && (
         <ReportModal userId={user.id} tasks={tasks} onClose={() => setReportOpen(false)} />
+      )}
+
+      {trendOpen && (
+        <TrendModal userId={user.id} tasks={tasks} onClose={() => setTrendOpen(false)} />
       )}
 
       {projectOpen && (
