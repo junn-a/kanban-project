@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { X, Trophy, Flame, TrendingUp, Calendar, Zap, Target, TrendingDown } from 'lucide-react'
+import { X, Trophy, Flame, TrendingUp, Calendar, Zap, Target, TrendingDown, ChevronDown, ChevronUp } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
   startOfDay, startOfWeek, startOfMonth,
-  subDays, differenceInDays, format
+  subDays, differenceInDays, format, parseISO, isValid,
+  endOfDay
 } from 'date-fns'
 import {
   Chart as ChartJS,
@@ -21,9 +22,17 @@ ChartJS.register(
 // ─── Konstanta poin ───────────────────────────────────────────────────────────
 const PRIORITY_MUL = { high: 3, medium: 2, low: 1 }
 const ACTION_PTS   = { created: 1, moved: 2, updated: 1, note: 1 }
-const DONE_BONUS   = 5   // bonus saat task dipindah ke Done
-const IDLE_PENALTY = 1   // -1 per hari tanpa aktivitas
-const OVERDUE_PEN  = 2   // -2 per task overdue (flat)
+const DONE_BONUS   = 5
+const IDLE_PENALTY = 1
+const OVERDUE_PEN  = 2
+
+// ─── Quick range preset definitions ──────────────────────────────────────────
+const QUICK_RANGES = [
+  { id: '7d',  label: '7 Hari',  days: 7  },
+  { id: '14d', label: '14 Hari', days: 14 },
+  { id: '30d', label: '30 Hari', days: 30 },
+  { id: '90d', label: '3 Bulan', days: 90 },
+]
 
 // ─── Hitung skor dengan penalti ───────────────────────────────────────────────
 function calcScore(activities, tasks, since, now) {
@@ -66,13 +75,15 @@ function calcScore(activities, tasks, since, now) {
   return { gained, penalty, idleDays, overdueCount: overdueTasks.length, net, activeDays, totalDays }
 }
 
-// ─── Build data tren harian ───────────────────────────────────────────────────
-function buildDailyTrend(activities, tasks, days) {
-  const now    = new Date()
+// ─── Build data tren harian (dari startDate ke endDate) ──────────────────────
+function buildDailyTrend(activities, tasks, startDate, endDate) {
   const result = []
+  const start  = startOfDay(startDate)
+  const end    = startOfDay(endDate)
+  const days   = differenceInDays(end, start) + 1
 
-  for (let i = days - 1; i >= 0; i--) {
-    const dayStart = startOfDay(subDays(now, i))
+  for (let i = 0; i < days; i++) {
+    const dayStart = startOfDay(new Date(start.getTime() + i * 86_400_000))
     const dayEnd   = new Date(dayStart.getTime() + 86_400_000)
 
     const dayActs = activities.filter(a => {
@@ -84,6 +95,7 @@ function buildDailyTrend(activities, tasks, days) {
 
     result.push({
       label: format(dayStart, days <= 14 ? 'EEE d/M' : 'd/M'),
+      fullLabel: format(dayStart, 'EEEE, d MMMM yyyy'),
       gained,
       penalty,
       net,
@@ -128,26 +140,151 @@ function StackedBar({ gained, penalty }) {
   )
 }
 
+// ─── Custom Date Range Picker ─────────────────────────────────────────────────
+function DateRangePicker({ startDate, endDate, onRangeChange }) {
+  const [open, setOpen]       = useState(false)
+  const [localStart, setLocalStart] = useState(format(startDate, 'yyyy-MM-dd'))
+  const [localEnd, setLocalEnd]     = useState(format(endDate,   'yyyy-MM-dd'))
+  const [activePreset, setActivePreset] = useState('7d')
+  const ref = useRef(null)
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  function applyPreset(preset) {
+    const end   = new Date()
+    const start = subDays(end, preset.days - 1)
+    const s = format(start, 'yyyy-MM-dd')
+    const e = format(end,   'yyyy-MM-dd')
+    setLocalStart(s)
+    setLocalEnd(e)
+    setActivePreset(preset.id)
+    onRangeChange(startOfDay(start), endOfDay(end))
+    setOpen(false)
+  }
+
+  function applyCustom() {
+    const s = parseISO(localStart)
+    const e = parseISO(localEnd)
+    if (!isValid(s) || !isValid(e) || s > e) return
+    const diffDays = differenceInDays(e, s)
+    if (diffDays > 365) return // max 1 year
+    setActivePreset(null)
+    onRangeChange(startOfDay(s), endOfDay(e))
+    setOpen(false)
+  }
+
+  const displayLabel = activePreset
+    ? QUICK_RANGES.find(r => r.id === activePreset)?.label
+    : `${format(parseISO(localStart), 'd MMM')} – ${format(parseISO(localEnd), 'd MMM yyyy')}`
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-brand-300 hover:text-brand-600 transition-all"
+      >
+        <Calendar className="w-3.5 h-3.5" />
+        <span>{displayLabel}</span>
+        {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1.5 z-50 w-64 bg-white rounded-xl border border-slate-200 shadow-xl p-3 space-y-3">
+          {/* Quick presets */}
+          <div>
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Cepat</p>
+            <div className="grid grid-cols-2 gap-1">
+              {QUICK_RANGES.map(r => (
+                <button
+                  key={r.id}
+                  onClick={() => applyPreset(r)}
+                  className={`py-1.5 text-xs font-medium rounded-lg border transition-all ${
+                    activePreset === r.id
+                      ? 'bg-brand-600 text-white border-brand-600'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-brand-300 hover:text-brand-600'
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Custom date inputs */}
+          <div>
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Custom</p>
+            <div className="space-y-1.5">
+              <div>
+                <label className="text-[10px] text-slate-500 block mb-0.5">Dari</label>
+                <input
+                  type="date"
+                  value={localStart}
+                  max={localEnd}
+                  onChange={e => { setLocalStart(e.target.value); setActivePreset(null) }}
+                  className="w-full text-xs px-2 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 text-slate-700"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-500 block mb-0.5">Sampai</label>
+                <input
+                  type="date"
+                  value={localEnd}
+                  min={localStart}
+                  max={format(new Date(), 'yyyy-MM-dd')}
+                  onChange={e => { setLocalEnd(e.target.value); setActivePreset(null) }}
+                  className="w-full text-xs px-2 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 text-slate-700"
+                />
+              </div>
+            </div>
+            <button
+              onClick={applyCustom}
+              className="mt-2 w-full py-1.5 text-xs font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-colors"
+            >
+              Terapkan
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Daily Trend Chart ────────────────────────────────────────────────────────
 function DailyTrendChart({ activities, tasks }) {
-  const [trendDays, setTrendDays] = useState(7)
+  const today   = useMemo(() => new Date(), [])
+  const default7Start = useMemo(() => subDays(today, 6), [today])
+
+  const [rangeStart, setRangeStart] = useState(startOfDay(default7Start))
+  const [rangeEnd,   setRangeEnd]   = useState(endOfDay(today))
+
   const canvasRef = useRef(null)
   const chartRef  = useRef(null)
 
   const trendData = useMemo(
-    () => buildDailyTrend(activities, tasks, trendDays),
-    [activities, tasks, trendDays]
+    () => buildDailyTrend(activities, tasks, rangeStart, rangeEnd),
+    [activities, tasks, rangeStart, rangeEnd]
   )
 
-  const avg  = trendData.length
-    ? Math.round(trendData.reduce((s, d) => s + d.net, 0) / trendData.length)
-    : 0
-  const peak = trendData.length ? Math.max(...trendData.map(d => d.net)) : 0
+  const totalDays = trendData.length
+  const avg   = totalDays ? Math.round(trendData.reduce((s, d) => s + d.net, 0) / totalDays) : 0
+  const peak  = totalDays ? Math.max(...trendData.map(d => d.net)) : 0
+  const total = trendData.reduce((s, d) => s + d.net, 0)
+  const activeDays = trendData.filter(d => !d.idle).length
+  const bestDay = trendData.find(d => d.net === peak)
+
+  function handleRangeChange(start, end) {
+    setRangeStart(start)
+    setRangeEnd(end)
+  }
 
   useEffect(() => {
     if (!canvasRef.current || !trendData.length) return
 
-    // destroy existing chart before re-creating
     if (chartRef.current) {
       chartRef.current.destroy()
       chartRef.current = null
@@ -163,7 +300,7 @@ function DailyTrendChart({ activities, tasks }) {
           {
             label: 'Diperoleh',
             data: trendData.map(d => d.gained),
-            backgroundColor: '#5DCAA5',
+            backgroundColor: trendData.map(d => d.idle ? 'rgba(203,213,225,0.5)' : '#5DCAA5'),
             borderRadius: { topLeft: 3, topRight: 3 },
             borderSkipped: 'bottom',
             stack: 'stack',
@@ -185,9 +322,11 @@ function DailyTrendChart({ activities, tasks }) {
             borderColor: '#2563eb',
             backgroundColor: 'rgba(37,99,235,0.08)',
             borderWidth: 2,
-            pointRadius: trendDays > 14 ? 2 : 3,
+            pointRadius: totalDays > 30 ? 1.5 : 3,
             pointHoverRadius: 5,
-            pointBackgroundColor: '#2563eb',
+            pointBackgroundColor: trendData.map(d => d.net === peak && peak > 0 ? '#f59e0b' : '#2563eb'),
+            pointBorderColor:     trendData.map(d => d.net === peak && peak > 0 ? '#f59e0b' : '#2563eb'),
+            pointRadius:          trendData.map(d => d.net === peak && peak > 0 ? 5 : (totalDays > 30 ? 1.5 : 3)),
             tension: 0.35,
             fill: false,
             order: 1,
@@ -202,6 +341,7 @@ function DailyTrendChart({ activities, tasks }) {
           legend: { display: false },
           tooltip: {
             callbacks: {
+              title: ctx => trendData[ctx[0].dataIndex]?.fullLabel ?? ctx[0].label,
               label: ctx => {
                 if (ctx.dataset.label === 'Penalti')   return ` Penalti: −${Math.abs(ctx.parsed.y)}`
                 if (ctx.dataset.label === 'Diperoleh') return ` Diperoleh: +${ctx.parsed.y}`
@@ -214,10 +354,11 @@ function DailyTrendChart({ activities, tasks }) {
           x: {
             stacked: true,
             ticks: {
-              display: trendDays <= 14,
+              display: totalDays <= 21,
               font: { size: 9 },
               maxRotation: 45,
-              autoSkip: false,
+              autoSkip: totalDays > 14,
+              maxTicksLimit: 14,
               color: '#94a3b8',
             },
             grid: { color: 'rgba(0,0,0,0.04)' },
@@ -246,72 +387,86 @@ function DailyTrendChart({ activities, tasks }) {
   }, [trendData])
 
   return (
-    <div>
-      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-2">
-        Tren Harian
-      </p>
-
-      {/* Slider rentang */}
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-[10px] text-slate-400 flex-shrink-0">3h</span>
-        <input
-          type="range"
-          min={3}
-          max={30}
-          step={1}
-          value={trendDays}
-          onChange={e => setTrendDays(+e.target.value)}
-          className="flex-1 accent-brand-600"
-          aria-label="Rentang hari tren"
+    <div className="space-y-3">
+      {/* Header row */}
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+          Tren Harian
+        </p>
+        <DateRangePicker
+          startDate={rangeStart}
+          endDate={rangeEnd}
+          onRangeChange={handleRangeChange}
         />
-        <span className="text-[10px] font-semibold text-slate-600 flex-shrink-0 w-14 text-right">
-          {trendDays} hari
-        </span>
       </div>
 
+      {/* Range label */}
+      <p className="text-[10px] text-slate-400">
+        {format(rangeStart, 'd MMM yyyy')} – {format(rangeEnd, 'd MMM yyyy')}
+        <span className="ml-1 text-slate-300">({totalDays} hari)</span>
+      </p>
+
       {/* Legend */}
-      <div className="flex gap-3 mb-2 flex-wrap">
+      <div className="flex gap-3 flex-wrap">
         {[
           { color: '#2563eb', label: 'Net score' },
-          { color: '#5DCAA5', label: 'Diperoleh' },
-          { color: '#F09595', label: 'Penalti'   },
+          { color: '#f59e0b', label: 'Hari terbaik', dot: true },
+          { color: '#5DCAA5', label: 'Diperoleh'  },
+          { color: '#F09595', label: 'Penalti'    },
+          { color: 'rgba(203,213,225,0.5)', label: 'Idle', border: '#cbd5e1' },
         ].map(l => (
           <span key={l.label} className="flex items-center gap-1 text-[10px] text-slate-500">
-            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: l.color }} />
+            <span
+              className={`w-2.5 h-2.5 flex-shrink-0 ${l.dot ? 'rounded-full' : 'rounded-sm'}`}
+              style={{ background: l.color, border: l.border ? `1px solid ${l.border}` : undefined }}
+            />
             {l.label}
           </span>
         ))}
       </div>
 
       {/* Chart canvas */}
-      <div className="relative" style={{ height: 140 }}>
+      <div className="relative" style={{ height: 150 }}>
         <canvas
           ref={canvasRef}
           role="img"
-          aria-label={`Tren skor harian ${trendDays} hari terakhir`}
+          aria-label={`Tren skor harian ${totalDays} hari`}
         />
       </div>
 
-      {/* Summary */}
-      <div className="flex justify-between mt-2 text-[10px] text-slate-400">
-        <span>
-          Rata-rata:{' '}
-          <span className="font-semibold text-slate-600">{avg} pts/hari</span>
-        </span>
-        <span>
-          Puncak:{' '}
-          <span className="font-semibold text-slate-600">{peak} pts</span>
-        </span>
+      {/* Summary stats */}
+      <div className="grid grid-cols-4 gap-1.5">
+        {[
+          { label: 'Total',    val: total,      suffix: 'pts', color: 'text-brand-600'   },
+          { label: 'Rata-rata',val: avg,         suffix: 'pts/hr', color: 'text-slate-700' },
+          { label: 'Terbaik',  val: peak,        suffix: 'pts', color: 'text-amber-500'  },
+          { label: 'Aktif',    val: `${activeDays}/${totalDays}`, suffix: 'hr', color: 'text-emerald-600' },
+        ].map(s => (
+          <div key={s.label} className="bg-white rounded-lg border border-slate-100 p-2 text-center">
+            <div className={`text-sm font-bold tabular-nums ${s.color}`}>{s.val}</div>
+            <div className="text-[9px] text-slate-400 leading-tight">{s.label}</div>
+          </div>
+        ))}
       </div>
+
+      {/* Best day callout */}
+      {bestDay && peak > 0 && (
+        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200">
+          <span className="text-base">🏆</span>
+          <div className="text-[10px] text-amber-700">
+            <span className="font-semibold">Hari terbaik:</span> {bestDay.fullLabel} — {peak} pts
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 // ─── Konstanta tab ────────────────────────────────────────────────────────────
 const PERIOD_TABS = [
-  { id: 'daily',   label: 'Today', icon: <Flame     className="w-3.5 h-3.5" /> },
-  { id: 'weekly',  label: 'Week',  icon: <TrendingUp className="w-3.5 h-3.5" /> },
-  { id: 'monthly', label: 'Month', icon: <Calendar  className="w-3.5 h-3.5" /> },
+  { id: 'daily',   label: 'Today', icon: <Flame      className="w-3.5 h-3.5" /> },
+  { id: 'weekly',  label: 'Week',  icon: <TrendingUp  className="w-3.5 h-3.5" /> },
+  { id: 'monthly', label: 'Month', icon: <Calendar   className="w-3.5 h-3.5" /> },
 ]
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
@@ -321,7 +476,8 @@ export default function ScoreModal({ userId, tasks, onClose }) {
   const [period, setPeriod]         = useState('daily')
 
   useEffect(() => {
-    const since = startOfMonth(new Date()).toISOString()
+    // Fetch 90 days of data to support up to 3-month trend view
+    const since = subDays(new Date(), 90).toISOString()
     supabase
       .from('task_activities')
       .select('*')
@@ -348,7 +504,6 @@ export default function ScoreModal({ userId, tasks, onClose }) {
   const rank     = getRank(result.net)
   const maxScore = { daily: 30, weekly: 150, monthly: 500 }[period]
 
-  // recent activity
   const sinceMs   = periodStart.getTime()
   const recent    = activities.filter(a => new Date(a.created_at).getTime() >= sinceMs)
   const doneTasks = recent.filter(a => a.action === 'moved' && a.meta?.to === 'Done').length
@@ -449,9 +604,9 @@ export default function ScoreModal({ userId, tasks, onClose }) {
               {/* Stats grid */}
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { icon: <Target     className="w-3.5 h-3.5 text-emerald-600" />, val: doneTasks,           label: 'Done',    bg: 'bg-emerald-50' },
-                  { icon: <Zap        className="w-3.5 h-3.5 text-brand-600"   />, val: moveCount,           label: 'Moves',   bg: 'bg-brand-50'   },
-                  { icon: <TrendingDown className="w-3.5 h-3.5 text-red-500"   />, val: result.overdueCount, label: 'Overdue', bg: 'bg-red-50'     },
+                  { icon: <Target       className="w-3.5 h-3.5 text-emerald-600" />, val: doneTasks,           label: 'Done',    bg: 'bg-emerald-50' },
+                  { icon: <Zap          className="w-3.5 h-3.5 text-brand-600"   />, val: moveCount,           label: 'Moves',   bg: 'bg-brand-50'   },
+                  { icon: <TrendingDown className="w-3.5 h-3.5 text-red-500"     />, val: result.overdueCount, label: 'Overdue', bg: 'bg-red-50'     },
                 ].map(s => (
                   <div key={s.label} className={`rounded-xl ${s.bg} p-3 text-center`}>
                     <div className="flex justify-center mb-1">{s.icon}</div>
@@ -461,7 +616,7 @@ export default function ScoreModal({ userId, tasks, onClose }) {
                 ))}
               </div>
 
-              {/* ── Daily Trend Chart ── */}
+              {/* ── Daily Trend Chart dengan Custom Date Range ── */}
               <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
                 <DailyTrendChart activities={activities} tasks={tasks} />
               </div>
