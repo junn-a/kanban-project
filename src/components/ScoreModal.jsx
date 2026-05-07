@@ -322,8 +322,6 @@ function DailyTrendChart({ activities, tasks }) {
             borderColor: '#2563eb',
             backgroundColor: 'rgba(37,99,235,0.08)',
             borderWidth: 2,
-            pointRadius: totalDays > 30 ? 1.5 : 3,
-            pointHoverRadius: 5,
             pointBackgroundColor: trendData.map(d => d.net === peak && peak > 0 ? '#f59e0b' : '#2563eb'),
             pointBorderColor:     trendData.map(d => d.net === peak && peak > 0 ? '#f59e0b' : '#2563eb'),
             pointRadius:          trendData.map(d => d.net === peak && peak > 0 ? 5 : (totalDays > 30 ? 1.5 : 3)),
